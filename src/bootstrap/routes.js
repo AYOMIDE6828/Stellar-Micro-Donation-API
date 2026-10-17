@@ -105,7 +105,68 @@ const UNVERSIONED_PATHS = [
   '/tags', '/leaderboard', '/federation', '/tools', '/auth', '/docs',
   '/transactions', '/claimable-balances', '/liquidity-pools', '/exchange-rates',
   '/impact',
+  // Payment channels were introduced as an unversioned API (Issue #1803);
+  // the legacy path now goes through the same deprecation treatment.
+  '/channels',
 ];
+
+// Sunset date for all unversioned legacy paths (Issue #1802).
+const LEGACY_SUNSET = 'Sat, 01 Jan 2027 00:00:00 GMT';
+
+// In-memory counter of legacy-path hits, keyed by API key id ('anonymous' when
+// unauthenticated). Exposed for metrics scrapers / tests via getLegacyPathMetrics().
+const legacyPathUsage = new Map();
+
+/**
+ * Record a hit on a legacy (unversioned) path for metrics.
+ *
+ * @param {string} apiKeyId
+ * @param {string} path
+ */
+function recordLegacyPathUsage(apiKeyId, path) {
+  const key = apiKeyId || 'anonymous';
+  const entry = legacyPathUsage.get(key) || { count: 0, paths: new Map() };
+  entry.count += 1;
+  entry.paths.set(path, (entry.paths.get(path) || 0) + 1);
+  legacyPathUsage.set(key, entry);
+}
+
+/**
+ * Snapshot of legacy-path usage, keyed by API key id.
+ *
+ * @returns {Object<string, {count: number, paths: Object<string, number>}>}
+ */
+function getLegacyPathMetrics() {
+  const snapshot = {};
+  for (const [key, entry] of legacyPathUsage.entries()) {
+    snapshot[key] = { count: entry.count, paths: Object.fromEntries(entry.paths) };
+  }
+  return snapshot;
+}
+
+/**
+ * Shared 308 redirect handler for unversioned legacy paths.
+ * Sets Deprecation / Sunset / Link headers, records usage metrics and logs a
+ * warning before redirecting to the versioned equivalent.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+function legacyRedirect(req, res) {
+  const apiKeyId = req.apiKey?.id || req.apiKey?.keyId || 'anonymous';
+  recordLegacyPathUsage(apiKeyId, req.path);
+  log.warn('DEPRECATION', 'Legacy unversioned API path used', {
+    path: req.path,
+    method: req.method,
+    apiKeyId,
+    successor: `/api/v1${req.path}`,
+    sunset: LEGACY_SUNSET,
+  });
+  res.set('Deprecation', 'true');
+  res.set('Sunset', LEGACY_SUNSET);
+  res.set('Link', `</api/v1${req.path}>; rel="successor-version"`);
+  return res.redirect(308, `/api/v1${req.url}`);
+}
 
 /**
  * Walk an Express Router's stack and register every route's methods + path
@@ -225,9 +286,10 @@ function mountRoutes(app, services = {}) {
   // Additive: /api/v1 above is untouched for backward compatibility.
   app.use('/api/v2', require('../routes/v2'));
 
-  // Payment channels were introduced as an unversioned API; keep that path
-  // available for existing clients while also exposing the versioned route.
-  app.use('/channels', require('../routes/channels'));
+  // Payment channels were introduced as an unversioned API (Issue #1803).
+  // The legacy /channels mount is handled by the deprecation redirect below;
+  // the versioned router is mounted under /api/v1 with the same auth and
+  // rate-limiting middleware as the rest of the versioned API.
   app.use('/exports', require('../routes/exports'));
 
   // Stellar federation protocol server (SEP-0002).
@@ -249,14 +311,11 @@ function mountRoutes(app, services = {}) {
     log.warn('ROUTES', 'GraphQL router could not be mounted', { error: err.message });
   }
 
-  // ── Deprecation redirects for unversioned paths (Issue #738) ─────────────────
+  // ── Deprecation redirects for unversioned paths (Issues #738, #1802, #1803) ──
   app.use((req, res, next) => {
     const matchesLegacy = UNVERSIONED_PATHS.some(p => req.path === p || req.path.startsWith(p + '/'));
     if (!matchesLegacy) return next();
-    res.set('Deprecation', 'true');
-    res.set('Link', `</api/v1${req.path}>; rel="successor-version"`);
-    res.set('Sunset', 'Sat, 01 Jan 2027 00:00:00 GMT');
-    return res.redirect(308, `/api/v1${req.url}`);
+    return legacyRedirect(req, res);
   });
 
   // ── SEP-0010 Stellar TOML ─────────────────────────────────────────────────
@@ -564,4 +623,12 @@ function mountRoutes(app, services = {}) {
   app.use(errorHandler);
 }
 
-module.exports = { mountRoutes, V1_ROUTES, ADMIN_ROUTES, UNVERSIONED_PATHS };
+module.exports = {
+  mountRoutes,
+  V1_ROUTES,
+  ADMIN_ROUTES,
+  UNVERSIONED_PATHS,
+  LEGACY_SUNSET,
+  legacyRedirect,
+  getLegacyPathMetrics,
+};

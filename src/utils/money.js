@@ -38,6 +38,36 @@ const MAX_STROOPS = 9223372036854775807n;
 const AMOUNT_REGEX = /^\d+(\.\d{1,7})?$/;
 
 /**
+ * Matches a non-negative decimal XLM amount with at most 7 fractional digits.
+ * Rejects signs, exponents, whitespace, and empty strings.
+ * @type {RegExp}
+ */
+const NON_NEGATIVE_AMOUNT_REGEX = /^\d+(\.\d{1,7})?$/;
+
+/**
+ * Convert a decimal XLM string to BigInt stroops using exact string arithmetic.
+ *
+ * Splits on '.', validates at most 7 fractional digits, pads the fractional part
+ * to exactly 7 digits, and builds the stroop value with BigInt. Never uses
+ * parseFloat/Number/toFixed, so 1 stroop ("0.0000001"), trailing zeros, and
+ * large values round-trip exactly.
+ *
+ * @param {string} str - decimal XLM string (already trimmed, no sign/exponent)
+ * @param {RegExp} regex - pattern the string must match
+ * @param {(string|number)} original - original input for error messages
+ * @returns {bigint} BigInt stroops
+ * @throws {Error} if the string does not match the pattern
+ */
+function parseDecimalToStroops(str, regex, original) {
+  if (!regex.test(str)) {
+    throw new Error(`Invalid XLM amount: ${original}`);
+  }
+  const [whole, frac = ''] = str.split('.');
+  const fracPadded = frac.padEnd(7, '0');
+  return BigInt(whole) * STROOPS_PER_XLM + BigInt(fracPadded);
+}
+
+/**
  * Validate an XLM donation amount and return its BigInt stroop value.
  *
  * This is the single source of truth for donation amount validation. It accepts
@@ -46,7 +76,7 @@ const AMOUNT_REGEX = /^\d+(\.\d{1,7})?$/;
  * the result at the int64 stroop maximum.
  *
  * Rejects: Number.MAX_VALUE, Number.MIN_VALUE, 1e-8, Infinity, NaN, 0, negatives,
- * and any value above int64 max stroops.
+ * exponent notation, and any value above int64 max stroops.
  *
  * @param {(string|number)} xlm - XLM amount as string or number
  * @returns {bigint} BigInt stroops
@@ -71,13 +101,11 @@ function validateAmount(xlm) {
   }
 
   const str = xlm.trim();
-  if (!AMOUNT_REGEX.test(str)) {
-    throw new Error(`Invalid XLM amount: ${xlm}`);
+  if (str.includes('e') || str.includes('E')) {
+    throw new Error(`Invalid XLM amount (exponent notation not allowed): ${xlm}`);
   }
 
-  const [whole, frac = ''] = str.split('.');
-  const fracPadded = frac.padEnd(7, '0');
-  const stroops = BigInt(whole) * STROOPS_PER_XLM + BigInt(fracPadded);
+  const stroops = parseDecimalToStroops(str, AMOUNT_REGEX, xlm);
 
   if (stroops <= 0n) {
     throw new Error(`Amount must be greater than zero: ${xlm}`);
@@ -92,27 +120,24 @@ function validateAmount(xlm) {
 /**
  * Convert an XLM string or number to BigInt stroops.
  * Accepts: "1.234567", 1.234567, "5", 5
- * Throws for non-finite or negative input.
+ * Throws for non-finite, negative, or exponent-notation input.
  * @param {(string|number)} xlm - XLM amount as string or number
  * @returns {bigint} BigInt stroops
  * @throws {Error} if amount is invalid or negative
  */
 function toStroops(xlm) {
+  if (typeof xlm === 'number' && !Number.isFinite(xlm)) {
+    throw new Error(`Invalid XLM amount: ${xlm}`);
+  }
   // Normalise to string for exact decimal handling
   const str = String(xlm).trim();
-  if (!/^-?\d+(\.\d+)?$/.test(str)) {
-    throw new Error(`Invalid XLM amount: ${xlm}`);
+  if (str.includes('e') || str.includes('E')) {
+    throw new Error(`Invalid XLM amount (exponent notation not allowed): ${xlm}`);
   }
   if (str.startsWith('-')) {
     throw new Error(`Amount must be non-negative: ${xlm}`);
   }
-  const [whole, frac = ''] = str.split('.');
-  // Pad / truncate fractional part to exactly 7 digits
-  const fracPadded = frac.padEnd(7, '0').slice(0, 7);
-  const stroops = BigInt(whole) * STROOPS_PER_XLM + BigInt(fracPadded);
-  if (stroops < 0n) {
-    throw new Error(`Amount must be non-negative: ${xlm}`);
-  }
+  const stroops = parseDecimalToStroops(str, NON_NEGATIVE_AMOUNT_REGEX, xlm);
   return stroops;
 }
 
