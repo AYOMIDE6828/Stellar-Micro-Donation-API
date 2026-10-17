@@ -20,19 +20,38 @@ const STELLAR_TIMEOUT_MS = 5000;
 
 const results = [];
 
+/** True when run as `node src/utils/startupChecks.js` (npm run validate-env). */
+const RUN_AS_CLI = require.main === module;
+
+/**
+ * Print a check result. The CLI writes plain lines to the terminal; inside the
+ * server the same lines go through the structured logger so they are masked and
+ * correlated like every other log line (#1783).
+ */
+function print(level, message) {
+  if (RUN_AS_CLI) {
+    // eslint-disable-next-line no-console
+    const write = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
+    write(message);
+    return;
+  }
+  const text = message.trim();
+  if (text) require('./log')[level]('STARTUP_CHECKS', text);
+}
+
 function pass(name, detail) {
   results.push({ name, status: 'pass', detail });
-  console.log(`  ✔ ${name}${detail ? ': ' + detail : ''}`);
+  print('info', `  ✔ ${name}${detail ? ': ' + detail : ''}`);
 }
 
 function warn(name, detail) {
   results.push({ name, status: 'warn', detail });
-  console.warn(`  ⚠ ${name}${detail ? ': ' + detail : ''}`);
+  print('warn', `  ⚠ ${name}${detail ? ': ' + detail : ''}`);
 }
 
 function fail(name, detail) {
   results.push({ name, status: 'fail', detail });
-  console.error(`  ✖ ${name}${detail ? ': ' + detail : ''}`);
+  print('error', `  ✖ ${name}${detail ? ': ' + detail : ''}`);
 }
 
 /** Patterns that indicate a placeholder / example ENCRYPTION_KEY */
@@ -759,12 +778,12 @@ async function runDbIntegrityCheck() {
  * @returns {Promise<{passed: boolean, results: Array}>}
  */
 async function run({ exitOnFailure = false } = {}) {
-  console.log('\nRunning startup checks…\n');
+  print('info', '\nRunning startup checks…\n');
 
   // CORS safety check runs first — a production misconfiguration is a hard failure
   const corsOk = checkCorsConfig();
   if (!corsOk && exitOnFailure) {
-    console.error('\nStartup checks FAILED ✖ (CORS misconfiguration in production)\n');
+    print('error', '\nStartup checks FAILED ✖ (CORS misconfiguration in production)\n');
     process.exit(1);
   }
 
@@ -791,7 +810,7 @@ async function run({ exitOnFailure = false } = {}) {
 
   const passed = criticalResults.every(Boolean);
 
-  console.log(`\nStartup checks ${passed ? 'passed ✔' : 'FAILED ✖'}\n`);
+  print(passed ? 'info' : 'error', `\nStartup checks ${passed ? 'passed ✔' : 'FAILED ✖'}\n`);
 
   if (!passed && exitOnFailure) {
     process.exit(1);
@@ -807,7 +826,7 @@ if (require.main === module) {
   // Load .env when run standalone
   require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
   run({ exitOnFailure: true }).catch((err) => {
-    console.error('Startup checks threw an unexpected error:', err.message);
+    print('error', `Startup checks threw an unexpected error: ${err.message}`);
     process.exit(1);
   });
 }

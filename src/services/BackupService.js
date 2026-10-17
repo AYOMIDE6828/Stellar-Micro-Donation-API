@@ -15,9 +15,11 @@ const crypto = require('crypto');
 const os = require('os');
 const sqlite3 = require('sqlite3').verbose();
 const log = require('../utils/log');
+const { env } = require('../config/env');
 
 const DB_PATH = path.join(__dirname, '../../data/stellar_donations.db');
-const BACKUP_DIR = process.env.BACKUP_DIR || path.join(__dirname, '../../data/backups');
+// Relative paths resolve against the project root; absolute paths are kept as-is.
+const BACKUP_DIR = path.resolve(__dirname, '../..', env.BACKUP_DIR);
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 
