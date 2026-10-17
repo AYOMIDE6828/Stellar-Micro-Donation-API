@@ -22,7 +22,7 @@ const Database = require('../utils/database');
 const log = require('../utils/log');
 const timerRegistry = require('../utils/timerRegistry');
 const config = require('../config');
-const { MS_PER_DAY, DB_ESTIMATED_ROW_BYTES, DEFAULT_RETENTION_SCHEDULE } = require('../constants');
+const { MS_PER_DAY, DB_ESTIMATED_ROW_BYTES } = require('../constants');
 
 /**
  * Reads the configured retention period (days) for a given category.
@@ -335,7 +335,7 @@ class RetentionService {
     ]);
 
     return {
-      config,
+      config: retentionSnapshot,
       stats: {
         donations: { total: txTotal.n, anonymized: txAnon.n },
         auditLogs: { total: auditTotal.n },

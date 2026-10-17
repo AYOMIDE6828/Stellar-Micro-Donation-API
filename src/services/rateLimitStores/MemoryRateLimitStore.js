@@ -12,6 +12,7 @@
  */
 
 const RateLimitStore = require('./RateLimitStore');
+const timerRegistry = require('../../utils/timerRegistry');
 
 class MemoryRateLimitStore extends RateLimitStore {
   constructor() {
@@ -31,7 +32,7 @@ class MemoryRateLimitStore extends RateLimitStore {
   async increment(key, windowMs) {
     // Clear any existing timer for this key
     if (this.timers.has(key)) {
-      clearTimeout(this.timers.get(key));
+      this.timers.get(key).clear();
     }
 
     // Increment the counter
@@ -39,10 +40,11 @@ class MemoryRateLimitStore extends RateLimitStore {
     this.counters.set(key, current);
 
     // Set expiration
-    const timer = setTimeout(() => {
+    const timer = timerRegistry.createTimeout(() => {
       this.counters.delete(key);
       this.timers.delete(key);
-    }, windowMs);
+    }, windowMs, 'rate-limit-window');
+    timer.unref();
 
     this.timers.set(key, timer);
 
@@ -67,7 +69,7 @@ class MemoryRateLimitStore extends RateLimitStore {
    */
   async reset(key) {
     if (this.timers.has(key)) {
-      clearTimeout(this.timers.get(key));
+      this.timers.get(key).clear();
       this.timers.delete(key);
     }
     this.counters.delete(key);
@@ -91,7 +93,7 @@ class MemoryRateLimitStore extends RateLimitStore {
    */
   async shutdown() {
     for (const timer of this.timers.values()) {
-      clearTimeout(timer);
+      timer.clear();
     }
     this.counters.clear();
     this.timers.clear();

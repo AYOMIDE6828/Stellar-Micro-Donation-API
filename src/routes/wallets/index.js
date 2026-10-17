@@ -23,7 +23,6 @@ const Database = require('../../utils/database');
 const Wallet = require('../../models/wallet');
 const WalletService = require('../../services/WalletService');
 const AuditLogService = require('../../services/AuditLogService');
-const log = require('../../utils/log');
 const requireApiKey = require('../../middleware/apiKey');
 const { getStellarService } = require('../../config/stellar');
 const { walletCreateSchema, walletIdSchema } = require('./helpers');

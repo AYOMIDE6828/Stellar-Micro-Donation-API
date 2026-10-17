@@ -818,7 +818,7 @@ try {
   donationEvents.on(donationEvents.EVENTS.CONFIRMED, broadcastHandler);
   donationEvents.on(donationEvents.EVENTS.CREATED, broadcastHandler);
   donationEvents.on(donationEvents.EVENTS.SUBMITTED, broadcastHandler);
-} catch (_) {}
+} catch (_) { /* best-effort */ }
 
 /**
  * GET /transactions/:id

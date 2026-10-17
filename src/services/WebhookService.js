@@ -722,47 +722,43 @@ class WebhookService {
     }
 
     return (async () => {
-      try {
-        await assertSafeOutboundUrl(url);
-        const parsed = new URL(url);
-        const lib = parsed.protocol === 'https:' ? https : http;
-        const options = {
-          hostname: parsed.hostname,
-          port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
-          path: parsed.pathname + parsed.search,
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(body),
-            'User-Agent': 'Stella-Donation-API/1.0',
-            'X-Signature': `sha256=${signature}`,
-            'X-Signature-Timestamp': timestamp,
-            'X-Webhook-Signature': `sha256=${signature}`,
-            'X-Webhook-Timestamp': timestamp,
-            ...correlationHeaders,
-          },
-          rejectUnauthorized: !tlsSkipVerify,
-          timeout: 10000,
-        };
+      await assertSafeOutboundUrl(url);
+      const parsed = new URL(url);
+      const lib = parsed.protocol === 'https:' ? https : http;
+      const options = {
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+        path: parsed.pathname + parsed.search,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+          'User-Agent': 'Stella-Donation-API/1.0',
+          'X-Signature': `sha256=${signature}`,
+          'X-Signature-Timestamp': timestamp,
+          'X-Webhook-Signature': `sha256=${signature}`,
+          'X-Webhook-Timestamp': timestamp,
+          ...correlationHeaders,
+        },
+        rejectUnauthorized: !tlsSkipVerify,
+        timeout: 10000,
+      };
 
-        return await new Promise((resolve, reject) => {
-          const req = lib.request(options, (res) => {
-            res.resume();
-            const delivered = res.statusCode >= 200 && res.statusCode < 300;
-            resolve({ delivered, statusCode: res.statusCode });
-          });
-
-          req.on('timeout', () => {
-            req.destroy();
-            reject(new Error('Request timed out'));
-          });
-          req.on('error', reject);
-          req.write(body);
-          req.end();
+      return await new Promise((resolve, reject) => {
+        const req = lib.request(options, (res) => {
+          res.resume();
+          const delivered = res.statusCode >= 200 && res.statusCode < 300;
+          resolve({ delivered, statusCode: res.statusCode });
         });
-      } catch (err) {
-        throw err;
-      }
+
+        req.on('timeout', () => {
+          req.destroy();
+          reject(new Error('Request timed out'));
+        });
+        req.on('error', reject);
+        req.write(body);
+        req.end();
+      });
     })();
   }
 

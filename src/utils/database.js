@@ -1036,7 +1036,7 @@ class Database {
       await runOnConn('COMMIT');
       return result;
     } catch (err) {
-      try { await runOnConn('ROLLBACK'); } catch (_) {}
+      try { await runOnConn('ROLLBACK'); } catch (_) { /* best-effort */ }
       throw err;
     } finally {
       await lease.release().catch(() => {});

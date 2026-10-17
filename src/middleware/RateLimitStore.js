@@ -77,7 +77,7 @@ class RedisRateLimitStore extends RateLimitStore {
     }
   }
 
-  close() { try { this._client.quit && this._client.quit(); } catch (_) {} }
+  close() { try { this._client.quit && this._client.quit(); } catch (_) { /* best-effort */ } }
 }
 
 const _defaultMemoryStore = new MemoryRateLimitStore();

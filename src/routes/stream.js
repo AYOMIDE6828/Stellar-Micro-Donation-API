@@ -94,8 +94,9 @@ const Database = require('../utils/database');
 const { checkPermission } = require('../middleware/rbac');
 const { PERMISSIONS } = require('../utils/permissions');
 const { VALID_FREQUENCIES, SCHEDULE_STATUS } = require('../constants');
-const { validateRequiredFields, validateFloat, validateXLMAmount, validateEnum } = require('../utils/validationHelpers');
+const { validateRequiredFields, validateXLMAmount, validateEnum } = require('../utils/validationHelpers');
 const log = require('../utils/log');
+const timerRegistry = require('../utils/timerRegistry');
 const { validateSchema } = require('../middleware/schemaValidation');
 const { isValidStellarPublicKey } = require('../utils/validators');
 const SseManager = require('../services/SseManager');
@@ -1009,12 +1010,12 @@ router.get('/feed', checkPermission(PERMISSIONS.STREAM_READ), (req, res) => {
   SseManager.writeSseEvent(res, '0', 'connected', { clientId, message: 'Stream connected' });
 
   // Heartbeat
-  const heartbeat = setInterval(() => {
+  const heartbeat = timerRegistry.createInterval(() => {
     res.write(': ping\n\n');
   }, SseManager.HEARTBEAT_INTERVAL_MS);
 
   req.on('close', () => {
-    clearInterval(heartbeat);
+    heartbeat.clear();
     SseManager.removeClient(clientId);
     log.info('SSE', 'Client disconnected', { clientId, keyId });
   });

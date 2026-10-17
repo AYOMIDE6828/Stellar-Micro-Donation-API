@@ -85,7 +85,7 @@ const KNOWN_LEAKS = new Set([
   'tests/issues/issue-909-receipt-get.test.js::overridden-env::API_KEYS',
   'tests/issues/issue-909-receipt-get.test.js::overridden-env::DB_JSON_PATH',
   'tests/issues/issue-911-soft-delete-schedule.test.js::overridden-env::API_KEYS',
-  'tests/issues/issues-1365-1366-1367-1368.test.js::overridden-env::API_KEYS',
+  'tests/issues/graphql-depth-limit-router-and-quota.test.js::overridden-env::API_KEYS',
   'tests/liquidity-pools.test.js::overridden-env::API_KEYS',
   'tests/middleware/configurable-donation-limits-per-wallet.test.js::colliding-fixture::admin-test-key',
   'tests/middleware/configurable-donation-limits-per-wallet.test.js::colliding-fixture::test-key-1',

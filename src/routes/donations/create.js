@@ -42,7 +42,6 @@ const {
   sendDonationSchema,
   createDonationSchema,
   crossAssetSchema,
-  crossAssetPathsSchema,
   createClaimableSchema,
   withDonorLock,
   formatBatchDonationError,
@@ -202,7 +201,7 @@ router.post('/send', rotationLockMiddleware(), payloadSizeLimiter(ENDPOINT_LIMIT
       message: error.message
     });
   }
-});
+}));
 
 // ─── Custodial donation helper (used by POST /) ───────────────────────────────
 
@@ -305,6 +304,10 @@ router.post('/', rotationLockMiddleware(), payloadSizeLimiter(ENDPOINT_LIMITS.si
   try {
     if (req.body.senderId != null && req.body.receiverId != null) {
       return await processCustodialDonation(req, res, next);
+    }
+
+    if (Array.isArray(req.body.claimants) && req.body.claimants.length > 0) {
+      return await processClaimableDonation(req, res, next);
     }
 
     const { amount, asset, currency, donor, recipient, memo, memoType, notes, tags, encryptMemo, anonymous, sourceAsset, sourceAmount, sendAsset, receiveAsset, slippageTolerance, validAfter, validBefore, validFrom, validUntil, contractAddress } = req.body;

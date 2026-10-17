@@ -288,11 +288,11 @@ const leaderboardComputeDuration = new client.Histogram({
 });
 
 function recordLeaderboardCacheHit() {
-  try { leaderboardCacheLookupsTotal.inc({ result: 'hit' }); } catch (_) {}
+  try { leaderboardCacheLookupsTotal.inc({ result: 'hit' }); } catch (_) { /* best-effort */ }
 }
 
 function recordLeaderboardCacheMiss() {
-  try { leaderboardCacheLookupsTotal.inc({ result: 'miss' }); } catch (_) {}
+  try { leaderboardCacheLookupsTotal.inc({ result: 'miss' }); } catch (_) { /* best-effort */ }
 }
 
 // ─── Scheduler Leader Election Metrics (#1604) ───────────────────────────────
@@ -322,13 +322,13 @@ const schedulerLockReleasesTotal = new client.Counter({
 function recordSchedulerLockAcquisition(status = 'acquired') {
   try {
     schedulerLockAcquisitionsTotal.inc({ status });
-  } catch (_) {}
+  } catch (_) { /* best-effort */ }
 }
 
 function recordSchedulerLockRelease() {
   try {
     schedulerLockReleasesTotal.inc();
-  } catch (_) {}
+  } catch (_) { /* best-effort */ }
 }
 
 module.exports = {

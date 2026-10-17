@@ -15,6 +15,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const Database = require('../utils/database');
 const log = require('../utils/log');
+const timerRegistry = require('../utils/timerRegistry');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 const { ERROR_CODES } = require('../utils/errors');
 const { serialize: csvSerialize } = require('../utils/csvSerializer');
@@ -292,12 +293,10 @@ class DonationExportService {
       });
 
       // Schedule deletion of export file after SIGNED_URL_EXPIRY_MS
-      const cleanupTimer = setTimeout(() => {
+      const cleanupTimer = timerRegistry.createTimeout(() => {
         fs.unlink(filePath).catch(() => {});
-      }, SIGNED_URL_EXPIRY_MS);
-      if (cleanupTimer.unref) {
-        cleanupTimer.unref();
-      }
+      }, SIGNED_URL_EXPIRY_MS, 'export-file-cleanup');
+      cleanupTimer.unref();
 
       // Fire webhook event: export.ready
       try {

@@ -12,6 +12,7 @@
 'use strict';
 
 process.env.NODE_ENV = 'test';
+const ORIGINAL_DB_PATH = process.env.DB_PATH;
 process.env.DB_PATH = ':memory:';
 
 const path = require('path');
@@ -134,4 +135,11 @@ describe('Issue #1768 — SQLite FTS5 availability check', () => {
       expect(files.length).toBeGreaterThan(5);
     }
   });
+});
+
+// Restore the module-scope env override so later suites in this worker see
+// the value tests/setup.js established.
+afterAll(() => {
+  if (ORIGINAL_DB_PATH === undefined) delete process.env.DB_PATH;
+  else process.env.DB_PATH = ORIGINAL_DB_PATH;
 });

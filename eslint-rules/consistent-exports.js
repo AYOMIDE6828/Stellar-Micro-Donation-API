@@ -37,7 +37,6 @@ module.exports = {
 
   create(context) {
     const filename = context.getFilename();
-    const sourceCode = context.getSourceCode();
 
     const isServiceModule = /src\/services\//.test(filename);
     const isUtilityModule = /src\/utils\//.test(filename);
