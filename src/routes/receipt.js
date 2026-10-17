@@ -20,11 +20,13 @@ const TaxReceiptService = require('../services/TaxReceiptService');
 const Transaction = require('../models/transaction');
 const asyncHandler = require('../utils/asyncHandler');
 const { payloadSizeLimiter, ENDPOINT_LIMITS } = require('../middleware/payloadSizeLimiter');
-const rateLimit = require('express-rate-limit');
+// Counts through the shared rate limit store (#1777)
+const { sharedRateLimit } = require('../middleware/rateLimiter');
 
 // ── Annual summary rate limiter ───────────────────────────────────────────────
 // PDF generation is CPU-intensive; restrict to 10 requests per 15 minutes per IP
-const annualSummaryRateLimiter = rateLimit({
+const annualSummaryRateLimiter = sharedRateLimit({
+  storePrefix: 'annualSummary',
   windowMs: 15 * 60 * 1000,
   max: 10,
   standardHeaders: true,
