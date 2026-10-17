@@ -75,7 +75,7 @@ jest.mock('../../src/services/TOTPService', () => ({
   verifyBackupCode: jest.fn().mockResolvedValue(false)
 }));
 
-const geoBlockingAdminRouter = require('../../src/routes/admin/geoBlocking');
+const geoBlockingAdminRouter = require('../../src/routes/admin/geoRules').deprecatedRouter;
 
 // Save original fs.existsSync so tests that mock it don't leak into other suites
 const _originalExistsSync = require('fs').existsSync;
@@ -435,7 +435,7 @@ describe('Geo-blocking Admin API', () => {
     });
 
     // Add routes
-    app.use('/admin/geo-blocking', require('../../src/routes/admin/geoBlocking'));
+    app.use('/admin/geo-blocking', require('../../src/routes/admin/geoRules').deprecatedRouter);
 
     server = app.listen(0);
   });
