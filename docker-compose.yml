@@ -17,7 +17,7 @@ services:
       - db_data:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/health']
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/health/live']
       interval: 30s
       timeout: 5s
       retries: 3
