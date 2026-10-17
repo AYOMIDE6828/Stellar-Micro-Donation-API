@@ -87,8 +87,6 @@ const KNOWN_LEAKS = new Set([
   'tests/issues/issue-911-soft-delete-schedule.test.js::overridden-env::API_KEYS',
   'tests/issues/issues-1365-1366-1367-1368.test.js::overridden-env::API_KEYS',
   'tests/liquidity-pools.test.js::overridden-env::API_KEYS',
-  'tests/middleware/configurable-donation-limits-per-wallet.test.js::colliding-fixture::admin-test-key',
-  'tests/middleware/configurable-donation-limits-per-wallet.test.js::colliding-fixture::test-key-1',
   'tests/middleware/per-wallet-donation-limits.test.js::overridden-env::API_KEYS',
   'tests/misc/account-data-entries.test.js::overridden-env::API_KEYS',
   'tests/misc/account-merge-validation.test.js::overridden-env::API_KEYS',

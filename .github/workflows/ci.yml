@@ -47,6 +47,9 @@ jobs:
       - run: npm run check-coverage
       - run: npm run openapi:check
       - run: npm run check:no-json-persistence
+      # Fail if test suites share hard-coded fixtures (API keys, etc.) that
+      # can collide when run in the same worker. Refs issue #1793.
+      - run: npm run check:isolation
       - run: npm run changelog:check
       - run: npm audit --audit-level=high
 

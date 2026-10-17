@@ -23,7 +23,7 @@
     "migrate:reencrypt": "node src/scripts/reencrypt-memos.js",
     "migrate:currency": "node src/scripts/migrations/addCurrencyColumns.js",
     "test": "jest",
-    "test:chaos": "jest tests/chaos --runInBand --forceExit",
+    "test:chaos": "jest tests/chaos --runInBand",
     "test:e2e": "jest --config jest.config.e2e.js",
     "test:coverage": "jest --coverage",
     "test:coverage:ci": "jest --coverage --ci --maxWorkers=2",
@@ -44,8 +44,8 @@
     "examples:generate-keys": "node scripts/generate-example-keys.js",
     "examples:validate": "node scripts/validate-examples.js",
     "test:load": "node tests/load/run-load-tests.js",
-    "test:load:jest": "jest tests/implement-load-testing-suite.test.js --testTimeout=60000 --forceExit",
-    "test:smoke": "jest --config jest.config.smoke.js --forceExit",
+    "test:load:jest": "jest tests/implement-load-testing-suite.test.js --testTimeout=60000",
+    "test:smoke": "jest --config jest.config.smoke.js",
     "test:quarantine": "jest --config jest.config.quarantine.js",
     "test:backup-restore": "node scripts/test-backup-restore.js",
     "mutation:test": "node scripts/run-mutation-tests.js",
@@ -62,7 +62,8 @@
     "scan:container": "bash scripts/scan-container.sh",
     "scan:container:all": "bash scripts/scan-container.sh --severity CRITICAL,HIGH,MEDIUM,LOW",
     "scan:container:json": "bash scripts/scan-container.sh --format json --output trivy-results.json",
-    "check:isolation": "node scripts/check-test-isolation.js"
+    "check:isolation": "node scripts/check-test-isolation.js",
+    "test:ci": "npm run check:isolation && jest --ci --maxWorkers=2"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
