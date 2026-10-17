@@ -2042,7 +2042,7 @@ class DonationService {
       })
       .map(entry => entry.tx);
 
-    return sorted;
+    return result;
   }
 
   /**

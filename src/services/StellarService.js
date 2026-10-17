@@ -5,18 +5,12 @@ const StellarSdk = require('stellar-sdk');
 // Internal modules
 const StellarServiceInterface = require('./interfaces/StellarServiceInterface');
 const { STELLAR_NETWORKS, HORIZON_URLS } = require('../constants');
-const StellarErrorHandler = require('../utils/stellarErrorHandler');
 const log = require('../utils/log');
 const { withTimeout, TIMEOUT_DEFAULTS, TimeoutError } = require('../utils/timeoutHandler');
 const { runWithAbortController, getCurrentAbortSignal } = require('../utils/abortContext');
 const { CircuitBreaker } = require('../utils/circuitBreaker');
 const HorizonPool = require('./HorizonPool');
-const {
-  toStellarSdkAsset,
-  normalizeHorizonAsset,
-  isSameAsset,
-  serializeAsset,
-} = require('../utils/stellarAsset');
+const { isSameAsset } = require('../utils/stellarAsset');
 
 // Import decomposed modules
 const StellarAccounts = require('./stellar/accounts');

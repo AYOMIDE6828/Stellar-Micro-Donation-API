@@ -27,7 +27,6 @@ const router = express.Router();
 const requireApiKey = require('../../middleware/apiKey');
 const { checkPermission } = require('../../middleware/rbac');
 const { PERMISSIONS } = require('../../utils/permissions');
-const log = require('../../utils/log');
 const { verificationRateLimiter } = require('../../middleware/rateLimiter');
 const { validateXLMAmount } = require('../../utils/validationHelpers');
 const { validateDateRange } = require('../../middleware/validation');
@@ -711,7 +710,7 @@ router.get('/verify-anonymous', checkPermission(PERMISSIONS.DONATIONS_READ), asy
   } catch (error) {
     next(error);
   }
-});
+}));
 
 // ─── POST /donations/verify ───────────────────────────────────────────────────
 

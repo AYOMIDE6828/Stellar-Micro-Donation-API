@@ -1,9 +1,9 @@
 
 const crypto = require('crypto');
 const StellarServiceInterface = require('./interfaces/StellarServiceInterface');
-const { ValidationError, NotFoundError, BusinessLogicError, ERROR_CODES } = require('../utils/errors');
+const { ValidationError, BusinessLogicError, ERROR_CODES } = require('../utils/errors');
 const log = require('../utils/log');
-const { getAssetKey, isSameAsset, serializeAsset } = require('../utils/stellarAsset');
+const { getAssetKey, isSameAsset } = require('../utils/stellarAsset');
 
 // Import decomposed modules
 const MockAccounts = require('./mock/accounts');
@@ -14,7 +14,6 @@ const MockFees = require('./mock/fees');
 const MockOffers = require('./mock/offers');
 const MockPayments = require('./mock/payments');
 
-const NATIVE_ASSET = { type: 'native', code: 'XLM', issuer: null };
 
 class MockStellarService extends StellarServiceInterface {
   constructor(config = {}) {
