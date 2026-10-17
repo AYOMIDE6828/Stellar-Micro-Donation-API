@@ -13,11 +13,27 @@ const log = require('../utils/log');
 const { calculateRetryAfter } = require('./rateLimitHeaders');
 
 let rateLimit;
+let MemoryStore;
 try {
   rateLimit = require('express-rate-limit');
+  // Use the in-memory store explicitly so hot read paths (e.g. list-donations)
+  // never perform a per-request DB/Redis round-trip for quota lookups.
+  MemoryStore = require('express-rate-limit').MemoryStore;
 } catch (error) {
   // Graceful fallback for environments missing the express-rate-limit dependency
   rateLimit = () => (req, res, next) => next();
+  MemoryStore = undefined;
+}
+
+/**
+ * Cheap, synchronous key generator shared by hot read paths.
+ * Avoids any DB lookup: relies solely on data already attached to the request
+ * by upstream auth middleware (req.apiKey) or the socket (req.ip).
+ * @param {Object} req - Express request
+ * @returns {string} Rate limit key
+ */
+function cheapKeyGenerator(req) {
+  return req.apiKey?.id || req.ip;
 }
 
 const AuditLogService = require('../services/AuditLogService');
@@ -254,6 +270,36 @@ const bulkImportRateLimiter = rateLimit({
 });
 
 /**
+ * Donations List Limiter (Hot Read Path)
+ * Intent: Protect the most frequent read endpoint (GET /donations) without adding
+ * per-request latency. This limiter must stay cheap:
+ * 1. Store: in-memory (MemoryStore) - no DB/Redis hit per request.
+ * 2. Key: req.apiKey?.id || req.ip - no synchronous DB lookups.
+ * 3. Threshold: generous (300 req/min) since this is a read path.
+ */
+const listDonationsRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: parseInt(process.env.LIST_DONATIONS_RATE_LIMIT || '300'),
+  keyGenerator: cheapKeyGenerator,
+  standardHeaders: true,
+  legacyHeaders: true,
+  validate: false,
+  ...(MemoryStore ? { store: new MemoryStore() } : {}),
+  skip: () => process.env.NODE_ENV === 'test',
+  handler: (req, res) => {
+    res.set('Retry-After', calculateRetryAfter(req.rateLimit?.resetTime));
+    res.status(429).json({
+      success: false,
+      error: {
+        code: 'RATE_LIMIT_EXCEEDED',
+        message: 'Too many donation list requests. Please try again later.',
+        retryAfter: req.rateLimit?.resetTime,
+      }
+    });
+  }
+});
+
+/**
  * Factory function for creating custom rate limiters in tests
  * @param {Object} options - Rate limiter options
  * @returns {Function} Rate limiter middleware
@@ -447,6 +493,8 @@ const liveHistoryRateLimiter = rateLimit({
 
 module.exports = {
   donationRateLimiter,
+  listDonationsRateLimiter,
+  cheapKeyGenerator,
   verificationRateLimiter,
   batchRateLimiter,
   bulkImportRateLimiter,

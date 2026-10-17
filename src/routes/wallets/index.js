@@ -44,9 +44,55 @@ function getBulkMaxRows() {
 
 // ─── POST /wallets ───────────────────────────────────────────────────────
 /**
- * Create wallet metadata
- * Body: { address: string (required), label?: string, ownerName?: string, sponsored?: boolean }
- * Requires wallets:create permission
+ * @openapi
+ * /wallets:
+ *   post:
+ *     summary: Create wallet metadata
+ *     description: Registers metadata for a Stellar wallet address. Requires the `wallets:create` permission.
+ *     tags:
+ *       - Wallets
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - address
+ *             properties:
+ *               address:
+ *                 type: string
+ *                 description: Valid Stellar Ed25519 public key
+ *                 example: GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF
+ *               label:
+ *                 type: string
+ *                 example: Main wallet
+ *               ownerName:
+ *                 type: string
+ *                 example: Jane Doe
+ *               sponsored:
+ *                 type: boolean
+ *                 default: false
+ *     responses:
+ *       201:
+ *         description: Wallet created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/Wallet'
+ *       400:
+ *         description: Missing or invalid address
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
  */
 router.post(
   '/',
@@ -102,12 +148,80 @@ router.post(
 
 // ─── GET /wallets ────────────────────────────────────────────────────────
 /**
- * List wallets with cursor-based pagination
- * Query params:
- *   - limit: page size (default 20, max 100)
- *   - cursor: opaque pagination cursor
- *   - direction: 'next' | 'prev' (default 'next')
- *   - sort: 'id:asc'|'id:desc'|'createdAt:asc'|'createdAt:desc'|'publicKey:asc'|'publicKey:desc'
+ * @openapi
+ * /wallets:
+ *   get:
+ *     summary: List wallets
+ *     description: Returns wallets using cursor-based pagination. Requires the `wallets:read` permission.
+ *     tags:
+ *       - Wallets
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *           maximum: 100
+ *         description: Page size
+ *       - in: query
+ *         name: cursor
+ *         schema:
+ *           type: string
+ *         description: Opaque pagination cursor
+ *       - in: query
+ *         name: direction
+ *         schema:
+ *           type: string
+ *           enum: [next, prev]
+ *           default: next
+ *       - in: query
+ *         name: sort
+ *         schema:
+ *           type: string
+ *           enum:
+ *             - id:asc
+ *             - id:desc
+ *             - createdAt:asc
+ *             - createdAt:desc
+ *             - publicKey:asc
+ *             - publicKey:desc
+ *           default: id:asc
+ *     responses:
+ *       200:
+ *         description: Paginated list of wallets
+ *         headers:
+ *           X-Total-Count:
+ *             schema:
+ *               type: integer
+ *             description: Total number of wallets
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Wallet'
+ *                 count:
+ *                   type: integer
+ *                 total:
+ *                   type: integer
+ *                 nextCursor:
+ *                   type: string
+ *                   nullable: true
+ *                 meta:
+ *                   type: object
+ *       400:
+ *         description: Invalid sort or pagination parameters
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
  */
 router.get(
   '/',
@@ -148,9 +262,67 @@ router.get(
 
 // ─── POST /wallets/bulk-import ───────────────────────────────────────────
 /**
- * Bulk import wallets from CSV file
- * Admin only, rate limited
- * File format: CSV with headers (address, label?, ownerName?)
+ * @openapi
+ * /wallets/bulk-import:
+ *   post:
+ *     summary: Bulk import wallets from CSV
+ *     description: Imports wallets from a CSV file. Admin only and rate limited. CSV must include an `address` header column; optional `label` and `ownerName` columns are supported.
+ *     tags:
+ *       - Wallets
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Import summary
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     imported:
+ *                       type: integer
+ *                     skipped:
+ *                       type: integer
+ *                     failed:
+ *                       type: integer
+ *                     errors:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           row:
+ *                             type: integer
+ *                           address:
+ *                             type: string
+ *                           reason:
+ *                             type: string
+ *       400:
+ *         description: Missing file, parse error, empty file, or invalid header
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (admin only)
+ *       413:
+ *         description: File too large
+ *       422:
+ *         description: Row limit exceeded
  */
 router.post(
   '/bulk-import',
@@ -284,8 +456,60 @@ router.post(
 
 // ─── POST /wallets/:id/fund ──────────────────────────────────────────────
 /**
- * Fund a wallet via Stellar Friendbot (testnet only)
- * Rate limited to 5 requests per minute per API key
+ * @openapi
+ * /wallets/{id}/fund:
+ *   post:
+ *     summary: Fund a wallet via Stellar Friendbot
+ *     description: Funds a wallet on testnet using Friendbot. Rate limited to 5 requests per minute per API key. Requires the `wallets:update` permission.
+ *     tags:
+ *       - Wallets
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Wallet ID
+ *       - in: query
+ *         name: force
+ *         schema:
+ *           type: boolean
+ *           default: false
+ *         description: Fund again even if the wallet already has a balance
+ *     responses:
+ *       200:
+ *         description: Wallet funded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     walletId:
+ *                       type: string
+ *                     publicKey:
+ *                       type: string
+ *                     funded:
+ *                       type: boolean
+ *                     transactionHash:
+ *                       type: string
+ *       400:
+ *         description: Wallet already funded (use force=true)
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden or friendbot unavailable in production
+ *       404:
+ *         description: Wallet not found
+ *       429:
+ *         description: Rate limit exceeded
  */
 router.post(
   '/:id/fund',
