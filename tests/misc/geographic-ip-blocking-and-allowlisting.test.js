@@ -161,6 +161,41 @@ describe('GeoBlockMiddleware', () => {
       );
     });
 
+    it('should fail startup when GEO_STRICT_MODE=true and database is missing', async () => {
+      require('fs').existsSync = jest.fn().mockReturnValue(false);
+      const originalStrictMode = config.geoBlocking.strictMode;
+      config.geoBlocking.strictMode = true;
+
+      try {
+        await expect(middleware.initialize()).rejects.toThrow(/MaxMind database not found/);
+        expect(middleware.initialized).toBe(false);
+        expect(log.error).toHaveBeenCalledWith(
+          'GEO_BLOCK',
+          expect.stringContaining('MaxMind database not found'),
+          expect.objectContaining({ strictMode: true })
+        );
+      } finally {
+        config.geoBlocking.strictMode = originalStrictMode;
+      }
+    });
+
+    it('should expose geo-block status via getStatus()', async () => {
+      require('fs').existsSync = jest.fn().mockReturnValue(false);
+
+      await middleware.initialize();
+
+      const status = middleware.getStatus();
+
+      expect(status).toEqual(
+        expect.objectContaining({
+          initialized: false,
+          databasePath: './data/GeoLite2-Country.mmdb',
+          databaseFound: false,
+          strictMode: false
+        })
+      );
+    });
+
     it('should handle database open errors', async () => {
       require('fs').existsSync = jest.fn().mockReturnValue(true);
       maxmind.open.mockRejectedValue(new Error('Database error'));

@@ -11,6 +11,7 @@
 
 const Database = require('../utils/database');
 const priceOracle = require('./PriceOracleService');
+const geoBlock = require('../middleware/geoBlock');
 
 /** Maximum time (ms) allowed for any single dependency check */
 const DEPENDENCY_TIMEOUT_MS = 400;
@@ -121,6 +122,35 @@ async function checkNetworkStatus(networkStatusService) {
 }
 
 /**
+ * Check geo-blocking (MaxMind database) status.
+ * Non-critical by default: a missing database degrades geo-blocking but does
+ * not take the API down. When GEO_STRICT_MODE is enabled a missing database is
+ * treated as unhealthy so the instance is pulled from traffic.
+ *
+ * @returns {Promise<{status: string, responseTime: number, enabled?: boolean, strictMode?: boolean, databaseLoaded?: boolean, error?: string}>}
+ */
+async function checkGeoBlocking() {
+  const result = await runCheck('geoBlocking', async () => {
+    const status = geoBlock.getGeoBlockStatus();
+    if (!status.enabled) {
+      return;
+    }
+    if (!status.databaseLoaded) {
+      throw new Error('MaxMind database not found');
+    }
+  });
+
+  let status = geoBlock.getGeoBlockStatus();
+  if (result.status === 'unhealthy' && !status.strictMode) {
+    // Fail open: geo-blocking is degraded, not fatal
+    status = { ...status, status: 'degraded' };
+    return { ...result, ...status, status: 'degraded' };
+  }
+
+  return { ...result, ...status };
+}
+
+/**
  * Aggregate all dependency checks and compute an overall status.
  *
  * Overall rules:
@@ -147,15 +177,16 @@ async function getFullHealth(stellarService, networkStatusService, scheduler, ve
     self.checkDatabase(),
     self.checkStellar(stellarService),
     self.checkIdempotency(),
+    self.checkGeoBlocking(),
   ];
 
   if (networkStatusService) {
     checks.push(self.checkNetworkStatus(networkStatusService));
   }
 
-  const [database, stellar, idempotency, network] = await Promise.all(checks);
+  const [database, stellar, idempotency, geoBlocking, network] = await Promise.all(checks);
 
-  const dependencies = { database, stellar, idempotency };
+  const dependencies = { database, stellar, idempotency, geoBlocking };
   if (network) {
     dependencies.network = network;
   }
@@ -172,6 +203,11 @@ async function getFullHealth(stellarService, networkStatusService, scheduler, ve
     // Stellar is a critical dependency for a donation API — treat as unhealthy
     status = 'unhealthy';
   } else if (idempotency.status === 'unhealthy') {
+    status = 'degraded';
+  } else if (geoBlocking.status === 'unhealthy') {
+    // Only reachable when GEO_STRICT_MODE is enabled and the DB is missing
+    status = 'unhealthy';
+  } else if (geoBlocking.status === 'degraded') {
     status = 'degraded';
   } else if (dependencies.scheduler && dependencies.scheduler.status === 'unhealthy') {
     status = 'degraded';
@@ -249,6 +285,7 @@ module.exports = {
   checkStellar,
   checkIdempotency,
   checkNetworkStatus,
+  checkGeoBlocking,
   getFullHealth,
   getLiveness,
   getReadiness,
