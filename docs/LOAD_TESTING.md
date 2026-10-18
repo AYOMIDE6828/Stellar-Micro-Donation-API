@@ -62,10 +62,42 @@ a separate, stricter set from the `BASELINES` used by the PR gate above (see
 that file's header comment for why they're split).
 
 If a scenario's measured p95 latency exceeds its target by more than **20%**,
-the workflow opens a GitHub issue (labelled `performance`, `regression`,
-`automated`) with the comparison metrics, rather than failing a build — a
-regression is a data point for follow-up, not a merge blocker. The check
-itself is a plain Node script and can be run against any report locally:
+the workflow reports it as a GitHub issue (labelled `performance`, `regression`,
+`automated`, `perf-regression`) with the comparison metrics, rather than
+failing a build — a regression is a data point for follow-up, not a merge
+blocker.
+
+### De-duplication (Issue #1795)
+
+The nightly workflow keeps **at most one open `perf-regression` issue per
+scenario**. Before reporting, it searches for an open issue carrying the
+`perf-regression` label whose title starts with the scenario's fixed prefix
+(e.g. `Performance regression detected — list-donations`):
+
+- **Existing issue found** — the workflow adds a comment with the new
+  comparison metrics and workflow-run link instead of opening a duplicate.
+- **No existing issue** — it opens a single new tracking issue for that
+  scenario.
+- **Scenario back within threshold** — the workflow comments with the recovery
+  metrics and **auto-closes** the open tracking issue.
+
+This replaces the previous behaviour of calling `issues.create` on every run,
+which produced a string of near-identical open issues (#1660–#1680) for the
+same `list-donations` p95 regression. Those duplicates have been closed in
+favour of one canonical tracking issue per scenario; the latest metrics for
+`list-donations` and `donation-creation` (both over threshold at the
+2026-09-24 run, issue #1812) are recorded on their canonical issues.
+
+The check itself is a plain Node script and can be run against any report
+locally — reproduce the nightly numbers with:
+
+```bash
+npm run test:load -- --output ./reports/load
+node scripts/check-load-test-regression.js reports/load/load-test-report.json
+```
+
+(Previously shown as a single snippet; the two commands above are the full
+reproduction flow.)
 
 ```bash
 npm run test:load -- --output ./reports/load

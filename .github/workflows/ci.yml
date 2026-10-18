@@ -32,6 +32,7 @@ jobs:
       # Fails on any lint error, and on more warnings than the --max-warnings
       # ratchet in package.json allows. Lower that number as warnings are fixed.
       - run: npm run lint
+      - run: npm run config:check
       - run: npm run migrate:check
       # Reject PRs that embed invalid Stellar keys or wrong field names in
       # the example curl/Postman files. Refs issue #1428.
@@ -97,6 +98,8 @@ jobs:
       - run: npm run check-coverage
       - run: npm run openapi:check
       - run: npm run check:no-json-persistence
+      # Fail if test suites share hard-coded fixtures (API keys, etc.) that
+      # can collide when run in the same worker. Refs issue #1793.
       - run: npm run check:isolation
       - run: npm run changelog:check
       - run: npm audit --audit-level=high

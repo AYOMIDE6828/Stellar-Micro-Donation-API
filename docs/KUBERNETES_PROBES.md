@@ -6,9 +6,22 @@ The API exposes two dedicated health endpoints designed for container orchestrat
 
 | Endpoint | Purpose | Rate limited |
 |---|---|---|
-| `GET /health/live` | Liveness — confirms the process is running | No |
+| `GET /health/live` | Liveness — confirms the process is running (process-only, no dependencies) | No |
 | `GET /health/ready` | Readiness — confirms all dependencies are healthy | No |
-| `GET /health` | Full health detail (admin: verbose mode) | Yes |
+| `GET /health` | Full health detail for humans/monitoring (admin: verbose mode) | Yes |
+
+The same three endpoints are also available under `/api/v1` (`/api/v1/health`,
+`/api/v1/health/live`, `/api/v1/health/ready`).
+
+### Canonical usage
+
+| Consumer | Endpoint |
+|---|---|
+| Docker `HEALTHCHECK` (Dockerfile) | `/health/live` |
+| Docker Compose `healthcheck` | `/health/live` |
+| Kubernetes `livenessProbe` | `/health/live` |
+| Kubernetes `readinessProbe` | `/health/ready` |
+| Humans / monitoring dashboards | `/health` |
 
 ### `GET /health/live`
 
@@ -72,8 +85,12 @@ readinessProbe:
 - **readiness** gates traffic. The endpoint returns 503 during shutdown so in-flight
   requests can drain before the pod is terminated (combine with a `preStop` sleep or
   `terminationGracePeriodSeconds` for zero-downtime rolling deployments).
-- Both endpoints are **excluded from rate limiting** because Kubernetes calls them every
-  few seconds per pod; including them in rate-limit counts would skew abuse metrics.
+- Both endpoints are **excluded from `healthCheckRateLimiter`** because Kubernetes calls
+  them every few seconds per pod; including them in rate-limit counts would skew abuse
+  metrics. Only `/health` and `/api/v1/health` are rate-limited.
+- Never point a liveness probe at `/health` or `/health/ready`: a dependency outage (or a
+  rate-limit response) would restart healthy containers and turn a partial outage into a
+  full one.
 
 ## Full Deployment Example
 
@@ -134,24 +151,35 @@ The reference Kubernetes workload configuration is available at
 
 ## Docker / Compose Health Check
 
-The `Dockerfile` and `docker-compose.yml` both define a Docker healthcheck against the
-`/health` endpoint (which includes full dependency information). This is separate from
-the Kubernetes probes above and is used by the Docker daemon / Compose to mark the
-container as `healthy` before dependent services start.
+The `Dockerfile`, `docker-compose.yml` and `docker-compose.prod.yml` all define a Docker
+healthcheck against the `/health/live` endpoint. This is separate from the Kubernetes
+probes above and is used by the Docker daemon / Compose to mark the container as
+`healthy` before dependent services start.
+
+`/health/live` is used rather than `/health` because it is process-only (no external
+dependency checks) and is exempt from `healthCheckRateLimiter`, so a dependency outage
+never marks a healthy container as `unhealthy`.
 
 ```yaml
-# docker-compose.yml (already configured)
+# docker-compose.yml / docker-compose.prod.yml (already configured)
 healthcheck:
-  test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/health']
+  test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/health/live']
   interval: 30s
   timeout: 5s
   retries: 3
   start_period: 10s
 ```
 
+```dockerfile
+# Dockerfile (already configured)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://localhost:3000/health/live || exit 1
+```
+
 For Kubernetes deployments use the dedicated `/health/live` and `/health/ready` probes
 instead of `/health`, as they are not rate-limited and return the minimal payload that
-the kubelet needs.
+the kubelet needs. Reserve `/health` for humans and monitoring, where the full
+dependency detail (and rate limiting) is appropriate.
 
 ## StatefulSet reference
 

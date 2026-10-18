@@ -28,6 +28,14 @@ jest.mock('../../src/services/StatsService', () => ({}));
 const { buildSchema } = require('../../src/graphql/schema');
 const pubsub = require('../../src/graphql/pubsub');
 const { graphql, parse, validate } = require('graphql');
+const {
+  checkComplexity,
+  computeComplexity,
+  checkDepth,
+  hashQuery,
+  MAX_QUERY_COMPLEXITY,
+  LIST_FIELD_COST,
+} = require('../../src/graphql/index');
 
 // ─── Service stubs ────────────────────────────────────────────────────────────
 
@@ -726,7 +734,8 @@ describe('GraphQL — WS unauthenticated fallback (#1370)', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('GraphQL — WS onSubscribe validation (#1369)', () => {
-  const { parse: gqlParse, validate: gqlValidate } = require('graphql');
+  const gqlParse = parse;
+  const gqlValidate = validate;
 
   /**
    * Replicate the onSubscribe validation logic from index.js so we can unit-test
@@ -832,13 +841,7 @@ describe('GraphQL — WS onSubscribe validation (#1369)', () => {
 // ─── Query complexity tests (#1594) ──────────────────────────────────────────
 
 describe('GraphQL — Query complexity limiting (#1594)', () => {
-  const {
-    checkComplexity,
-    computeComplexity,
-    MAX_QUERY_COMPLEXITY,
-    LIST_FIELD_COST,
-  } = require('../../src/graphql/index');
-  const { parse: gqlParse } = require('graphql');
+  const gqlParse = parse;
 
   test('exports checkComplexity function', () => {
     expect(typeof checkComplexity).toBe('function');
@@ -942,7 +945,6 @@ describe('GraphQL — Query complexity limiting (#1594)', () => {
   });
 
   test('hashQuery returns a string for a valid document', () => {
-    const { hashQuery } = require('../../src/graphql/index');
     const doc = gqlParse('{ donations { id } }');
     const h = hashQuery(doc);
     expect(typeof h).toBe('string');
@@ -950,11 +952,22 @@ describe('GraphQL — Query complexity limiting (#1594)', () => {
   });
 
   test('checkDepth and checkComplexity are independently enforced', () => {
-    const { checkDepth } = require('../../src/graphql/index');
     const doc = gqlParse('{ donations { id amount } }');
     const depthResult = checkDepth(doc);
     const complexityResult = checkComplexity(doc);
     expect(typeof depthResult.valid).toBe('boolean');
     expect(typeof complexityResult.valid).toBe('boolean');
   });
+});
+
+// ─── Teardown ────────────────────────────────────────────────────────────────
+
+afterAll(async () => {
+  // Drop any subscribers left behind so no pending promises or timers keep the
+  // event loop alive after the suite finishes.
+  if (typeof pubsub.clearAllSubscriptions === 'function') {
+    pubsub.clearAllSubscriptions();
+  } else if (pubsub.subscriptions && typeof pubsub.subscriptions.clear === 'function') {
+    pubsub.subscriptions.clear();
+  }
 });

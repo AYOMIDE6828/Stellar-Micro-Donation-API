@@ -319,14 +319,6 @@ class RetentionService {
    * @returns {Promise<Object>} Status object
    */
   async getStatus() {
-    const retentionSnapshot = {
-      donationRetentionDays: resolveRetentionDays('donations'),
-      auditLogRetentionDays: resolveRetentionDays('auditLogs'),
-      idempotencyRetentionDays: resolveRetentionDays('idempotency'),
-      dryRun: this.dryRun,
-      scheduleCron: config.retention.scheduleCron,
-    };
-
     const [txTotal, txAnon, auditTotal, idempotencyTotal] = await Promise.all([
       Database.get('SELECT COUNT(*) as n FROM transactions').catch(() => ({ n: 0 })),
       Database.get(`SELECT COUNT(*) as n FROM transactions WHERE memo LIKE 'anon:%'`).catch(() => ({ n: 0 })),
