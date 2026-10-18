@@ -17,7 +17,7 @@ const path = require('path');
 const log = require('../utils/log');
 const { v4: uuidv4 } = require('uuid');
 const timerRegistry = require('../utils/timerRegistry');
-const rateLimitStore = require('../utils/rateLimitStore');
+const { getRateLimitStore } = require('./rateLimitStores');
 
 const DB_PATH = process.env.ABUSE_DB_PATH || path.join(__dirname, '../../../data/blockedIps.json');
 
@@ -122,17 +122,20 @@ class AbuseDetectionService {
   }
 
   /**
-   * Increment a counter in the shared rate-limit store.
-   * Falls back to an in-memory store when Redis is not configured.
+   * Increment a counter in the shared rate-limit store (services/rateLimitStores).
+   * Abuse detection only observes, so a store error is logged and treated as
+   * "not suspicious" (fail-open) rather than failing the request.
    */
   async incrementCounter(key, windowMs) {
-    if (rateLimitStore && typeof rateLimitStore.increment === 'function') {
-      return rateLimitStore.increment(key, windowMs);
+    try {
+      return await getRateLimitStore().increment(key, windowMs);
+    } catch (error) {
+      log.error('ABUSE_DETECTION', 'Rate limit store error; counter skipped (fail-open)', {
+        key,
+        error: error.message,
+      });
+      return 0;
     }
-    if (rateLimitStore && typeof rateLimitStore.incr === 'function') {
-      return rateLimitStore.incr(key, windowMs);
-    }
-    return 0;
   }
 
   ensureDbDir() {

@@ -1,4 +1,4 @@
-const RequestCounter = require('../../src/middleware/RequestCounter');
+const RequestCounter = require('../../src/utils/requestCounter');
 
 describe('RequestCounter', () => {
   let counter;

@@ -21,6 +21,7 @@ const { parseCursorPaginationQuery } = require('../utils/pagination');
 const { errorHandler, notFoundHandler } = require('../middleware/errorHandler');
 const { registerMethod, clearRegistry } = require('../middleware/methodRegistry');
 const { optionsHandler, methodNotAllowedHandler } = require('../middleware/methodNotAllowedHandler');
+const { DEPRECATION_SUNSET } = require('../middleware/deprecation');
 const HealthCheckService = require('../services/HealthCheckService');
 const AuditLogService = require('../services/AuditLogService');
 const Database = require('../utils/database');
@@ -57,6 +58,8 @@ const V1_ROUTES = [
   ['/claimable-balances',             require('../routes/claimableBalances')],
   ['/liquidity-pools',                require('../routes/liquidity-pools')],
   ['/channels',                       require('../routes/channels')],
+  // Read-only client view of flags; management lives only in /admin/feature-flags (#1775)
+  ['/feature-flags',                  require('../routes/feature-flags')],
 ];
 
 // ── Admin routes ──────────────────────────────────────────────────────────────
@@ -75,16 +78,13 @@ const ADMIN_ROUTES = [
   ['/admin/feature-flags',            require('../routes/admin/featureFlags')],
   ['/admin',                          require('../routes/admin')],
   ['/admin/backups',                  require('../routes/admin/backup')],
-  ['/admin/audit-logs/export',        require('../routes/admin/auditLogExport')],
+  ['/admin/audit-logs/export',        require('../routes/auditLogExport').adminRouter],
   ['/admin/security/scan',            require('../routes/admin/securityScan')],
   ['/admin/analytics',                require('../routes/admin/analytics')],
-  ['/admin/api-keys/usage',           require('../routes/admin/apiKeyUsage')],
-  ['/admin/api-keys',                 require('../routes/admin/apiKeyAnalytics')],
+  ['/admin/api-keys',                 require('../routes/apiKeyUsage').adminRouter],
   ['/admin/circuit-breaker',          require('../routes/admin/circuitBreaker')],
-  ['/admin/corporate-matching',       require('../routes/admin/corporateMatching')],
+  ['/admin/corporate-matching',       require('../routes/corporateMatching').adminRouter],
   ['/admin/encryption',               require('../routes/admin/encryption')],
-  ['/admin/feature-flags',            require('../routes/admin/featureFlags')],
-  ['/admin/geo-blocking',             require('../routes/admin/geoBlocking')],
   ['/admin/impact-metrics',           require('../routes/admin/impactMetrics')],
   ['/admin/sdg-mapping',              require('../routes/admin/impactMetrics')],
   ['/admin/matching-programs',        require('../routes/admin/matchingPrograms')],
@@ -93,9 +93,15 @@ const ADMIN_ROUTES = [
   ['/admin/traces',                   require('../routes/admin/traces')],
   ['/admin',                          require('../routes/admin/startupReport')],
   ['/admin/wallets',                  require('../routes/admin/walletLimits')],
-  ['/admin/wallets',                  require('../routes/admin/walletDonationLimits')],
   ['/admin/wallets/bulk-import',        require('../routes/admin/bulkWalletImport')],
   ['/admin/webhooks',                 require('../routes/admin/webhooks')],
+  ['/admin/inspect/xdr',              require('../routes/admin/inspect')],
+
+  // ── Deprecated aliases kept for one release after route consolidation (#1778).
+  // Same handlers as the canonical routes; responses carry Deprecation, Sunset
+  // and Link headers. Remove after the sunset date (1 Jan 2027).
+  ['/admin/geo-blocking',             require('../routes/admin/geoRules').deprecatedRouter],
+  ['/admin/transactions',             require('../routes/admin/inspect').deprecatedRouter],
 ];
 
 // Unversioned paths that redirect to /api/v1 (Issue #738)
@@ -104,7 +110,7 @@ const UNVERSIONED_PATHS = [
   '/webhooks', '/campaigns', '/pledges', '/encryption', '/tiers', '/offers', '/orderbook',
   '/tags', '/leaderboard', '/federation', '/tools', '/auth', '/docs',
   '/transactions', '/claimable-balances', '/liquidity-pools', '/exchange-rates',
-  '/impact',
+  '/impact', '/feature-flags',
 ];
 
 /**
@@ -173,7 +179,7 @@ function mountRoutes(app, services = {}) {
   // Network routes require separate injection
   apiV1.use('/network', networkRoutes);
 
-  // Corporate matching router
+  // Corporate matching member endpoints (admin + v2 routers live in the same module)
   apiV1.use('/', require('../routes/corporateMatching'));
 
   // Federation lookup (has named export)
@@ -255,7 +261,7 @@ function mountRoutes(app, services = {}) {
     if (!matchesLegacy) return next();
     res.set('Deprecation', 'true');
     res.set('Link', `</api/v1${req.path}>; rel="successor-version"`);
-    res.set('Sunset', 'Sat, 01 Jan 2027 00:00:00 GMT');
+    res.set('Sunset', DEPRECATION_SUNSET);
     return res.redirect(308, `/api/v1${req.url}`);
   });
 
@@ -428,7 +434,6 @@ function mountRoutes(app, services = {}) {
   }
 
   app.use('/admin/totp', requireApiKey, require('../routes/admin/totp'));
-  app.use('/admin/inspect/xdr', rbac.requireAdmin(), require('../routes/admin/inspect'));
   
   // Audit logs — #796: mandatory pagination, default 50, max 500
   const AUDIT_LOG_DEFAULT_LIMIT = 50;
