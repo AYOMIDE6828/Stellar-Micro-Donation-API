@@ -165,6 +165,9 @@ function mountRoutes(app, services = {}) {
     serviceAccountBalanceMonitor,
   } = services;
 
+  // Every replica registers the same inbound webhook sources from config (#1786).
+  require('../middleware/inboundWebhookVerification').registerWebhookSourcesFromConfig();
+
   // Network route needs a service reference injected at mount time
   const { router: networkRoutes, setService: setNetworkService } = require('../routes/network');
   if (networkStatusService) setNetworkService(networkStatusService);
@@ -529,7 +532,7 @@ function mountRoutes(app, services = {}) {
 
   // ── 404 & error handlers (must be last) ──────────────────────────────────
   // ── Optional changelog endpoint (ENABLE_CHANGELOG_ENDPOINT=true) ───────────
-  if (process.env.ENABLE_CHANGELOG_ENDPOINT === 'true') {
+  if (require('../config/env').readEnv('ENABLE_CHANGELOG_ENDPOINT')) {
     const changelogRoutes = require('../routes/changelog');
     app.use('/api/v1/changelog', changelogRoutes);
     app.get('/api/v1/changelog', (req, res, next) => next()); // ensure GET / is handled

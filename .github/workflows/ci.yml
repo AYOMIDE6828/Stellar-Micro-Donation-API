@@ -23,6 +23,7 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run lint
+      - run: npm run config:check
       - run: npm run migrate:check
       # Reject PRs that embed invalid Stellar keys or wrong field names in
       # the example curl/Postman files. Refs issue #1428.

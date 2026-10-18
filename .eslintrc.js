@@ -50,6 +50,13 @@ const GRANDFATHERED_LARGE_FILES = [
   'tests/tracing/distributed-tracing-opentelemetry.test.js',
 ];
 
+/**
+ * Files that read process.env directly and predate the central config schema
+ * (#1784). New files must use src/config/env.js instead. As files are migrated,
+ * remove them from eslint-rules/process-env-grandfathered.json.
+ */
+const PROCESS_ENV_GRANDFATHERED = require('./eslint-rules/process-env-grandfathered.json');
+
 module.exports = {
   env: {
     node: true,
@@ -102,6 +109,7 @@ module.exports = {
         '^eyJ',                                  // example JWT (OpenAPI docs)
         '014_webhook_tls_skip_verify',           // migration name
         'obj<<',                                 // embedded PDF template
+        'SHARED_STATE_BACKEND',                  // env-var doc string
       ],
     }],
     ...(hasSecurityPlugin ? {
@@ -138,22 +146,47 @@ module.exports = {
       },
     },
     {
-      // Enforce structured logging in all service source files. Operational/CLI
-      // scripts (migrations, the env-validation boot check) print to the console
-      // by design and are exempt.
+      // Enforce structured logging in all service source files (#1783). CLI
+      // scripts (src/scripts, migrations) print to the console by design and are
+      // exempt; startupChecks.js only uses the console when run as a CLI.
       files: ['src/**/*.js'],
       excludedFiles: [
         'src/scripts/**/*.js',
         'src/migrations/**/*.js',
         // Config loads at boot before the logger and the logger itself depends on
-        // config (src/utils/log.js requires ../config), so config must use console.
-        'src/config/**/*.js',
+        // config (src/utils/log.js requires ../config), so these two files must use
+        // console. The rest of src/config uses the logger like everything else (#1783).
+        'src/config/index.js',
+        'src/config/stellarEnvironments.js',
         'src/utils/log.js',
-        'src/utils/migrationRunner.js',
-        'src/utils/startupChecks.js',
       ],
       rules: {
         'no-console': 'error',
+      },
+    },
+    {
+      // Centralised configuration (#1784): read environment variables through
+      // src/config/env.js (typed, validated, documented in envSchema.js) rather
+      // than process.env. CLI scripts and migrations run outside the app and are exempt.
+      files: ['src/**/*.js'],
+      excludedFiles: [
+        'src/config/**/*.js',
+        'src/scripts/**/*.js',
+        'src/migrations/**/*.js',
+      ],
+      rules: {
+        'no-restricted-properties': ['error', {
+          object: 'process',
+          property: 'env',
+          message: 'Read configuration via src/config/env.js (declare the variable in src/config/envSchema.js).',
+        }],
+      },
+    },
+    {
+      // Pre-existing direct reads, migrated incrementally.
+      files: PROCESS_ENV_GRANDFATHERED,
+      rules: {
+        'no-restricted-properties': 'off',
       },
     },
     {

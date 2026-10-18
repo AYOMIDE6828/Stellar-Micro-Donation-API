@@ -399,6 +399,13 @@ async function startServer(app, overrideServices = {}) {
           log.error('SHUTDOWN', 'Error flushing audit log buffer', { error: err.message });
         }
 
+        // Close the shared-state backend connection (no-op for the memory backend)
+        try {
+          await require('../utils/sharedStateStore').getSharedStateStore().close();
+        } catch (err) {
+          log.error('SHUTDOWN', 'Error closing shared-state store', { error: err.message });
+        }
+
         // 10. Close DB pool (last — nothing else writes after this)
         await Database.close();
         log.info('SHUTDOWN', 'Database pool closed');

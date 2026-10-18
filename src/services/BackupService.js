@@ -15,10 +15,16 @@ const crypto = require('crypto');
 const os = require('os');
 const sqlite3 = require('sqlite3').verbose();
 const log = require('../utils/log');
+const { env } = require('../config/env');
+const cryptoCore = require('../utils/crypto');
 
 const DB_PATH = path.join(__dirname, '../../data/stellar_donations.db');
-const BACKUP_DIR = process.env.BACKUP_DIR || path.join(__dirname, '../../data/backups');
-const cryptoCore = require('../utils/crypto');
+// Relative paths resolve against the project root; absolute paths are kept as-is.
+const BACKUP_DIR = env.BACKUP_DIR
+  ? path.resolve(__dirname, '../..', env.BACKUP_DIR)
+  : (process.env.BACKUP_DIR || path.join(__dirname, '../../data/backups'));
+const ALGORITHM = 'aes-256-gcm';
+const IV_LENGTH = 12;
 
 /**
  * Derive a 32-byte key from the ENCRYPTION_KEY env var (same approach as encryption.js).
