@@ -356,7 +356,7 @@ describe('RestoreTestRunner start/stop', () => {
     const { runner } = makeRunner({}, { schedule: '0 2 * * *' });
     runner.start();
 
-    expect(nodeCron.schedule).toHaveBeenCalledWith('0 2 * * *', expect.any(Function));
+    expect(timerRegistry.scheduleCron).toHaveBeenCalledWith('0 2 * * *', expect.any(Function));
     runner.stop();
   });
 
@@ -365,7 +365,7 @@ describe('RestoreTestRunner start/stop', () => {
     const runner = new RestoreTestRunner({ backupService });
     runner.start();
 
-    const usedSchedule = nodeCron.schedule.mock.calls[0][0];
+    const usedSchedule = timerRegistry.scheduleCron.mock.calls[0][0];
     expect(usedSchedule).toBe('0 3 * * *');
     runner.stop();
   });
@@ -375,8 +375,8 @@ describe('RestoreTestRunner start/stop', () => {
     runner.start();
     runner.start(); // second call should be a no-op
 
-    // nodeCron.schedule was called only once
-    expect(nodeCron.schedule).toHaveBeenCalledTimes(1);
+    // timerRegistry.scheduleCron was called only once
+    expect(timerRegistry.scheduleCron).toHaveBeenCalledTimes(1);
     runner.stop();
   });
 

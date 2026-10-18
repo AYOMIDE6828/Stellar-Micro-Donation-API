@@ -67,6 +67,24 @@ class TimerRegistry {
     };
   }
 
+  /**
+   * Schedule a daily background callback without requiring an undeclared cron
+   * package. The expression is retained for diagnostics and API compatibility;
+   * callers that need calendar-precise scheduling should use a dedicated job
+   * runner outside the application process.
+   * @param {string} expression - Cron expression retained for diagnostics.
+   * @param {Function} fn - Callback to invoke.
+   * @returns {{ stop: Function, destroy: Function, nextDate: Function }}
+   */
+  scheduleCron(expression, fn) {
+    const interval = this.createInterval(fn, 24 * 60 * 60 * 1000, `cron-${expression}`);
+    return {
+      stop: interval.clear,
+      destroy: interval.clear,
+      nextDate: () => new Date(Date.now() + 24 * 60 * 60 * 1000),
+    };
+  }
+
   /** @private */
   _clear(id) {
     const entry = this._timers.get(id);

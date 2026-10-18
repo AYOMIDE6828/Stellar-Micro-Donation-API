@@ -50,6 +50,62 @@ const STRICT = process.argv.includes('--strict');
 const AS_JSON = process.argv.includes('--json');
 
 /**
+ * Validate literal Jest ignore paths while allowing regex-style patterns and
+ * intentional dependency directories. A stale file entry silently removes
+ * coverage from the test run, so it is a blocking finding.
+ * @returns {Array<object>} Findings
+ */
+function checkIgnoredTestPaths() {
+  const configPath = path.join(REPO_ROOT, 'jest.config.js');
+  const config = require(configPath);
+  const source = fs.readFileSync(configPath, 'utf8');
+  const findings = [];
+  for (const pattern of config.testPathIgnorePatterns || []) {
+    const literal = pattern.replace(/^\^?\//, '').replace(/\/$/, '');
+    const isRegexPattern = /[\\^$*+?()[\]{}|]/.test(pattern);
+    if (isRegexPattern || literal === 'node_modules') continue;
+    if (fs.existsSync(path.resolve(REPO_ROOT, literal))) continue;
+    const offset = source.indexOf(pattern);
+    findings.push({
+      file: 'jest.config.js',
+      rule: 'stale-test-ignore-path',
+      detail: pattern,
+      line: offset === -1 ? 1 : source.slice(0, offset).split('\n').length,
+      message: `testPathIgnorePatterns contains ${pattern}, but the path does not exist`,
+    });
+  }
+  return findings;
+}
+
+/**
+ * Find nested suites using one-level repository-relative paths. Paths such as
+ * tests/misc/../src resolve under tests/, not the repository root; use
+ * tests/helpers/paths.js instead.
+ * @returns {Array<object>} Findings
+ */
+function checkFragileRepositoryPaths() {
+  const findings = [];
+  const fragile = /(?:path|require\(['"]path['"]\))\.(?:join|resolve)\(\s*__dirname\s*,\s*['"]\.\.\/(?:src|docs|\.github)|(?:path|require\(['"]path['"]\))\.(?:join|resolve)\(\s*__dirname\s*,\s*['"]\.\.['"]\s*,\s*['"](?:src|docs|\.github)(?:\/|['"])/;
+  for (const file of collectTestFiles(TESTS_DIR)) {
+    const relativeToTests = path.relative(TESTS_DIR, file).replace(/\\/g, '/');
+    if (!relativeToTests.includes('/')) continue;
+    const source = fs.readFileSync(file, 'utf8');
+    source.split('\n').forEach((line, index) => {
+      if (!fragile.test(line)) return;
+      const relative = path.relative(REPO_ROOT, file).replace(/\\/g, '/');
+      findings.push({
+        file: relative,
+        rule: 'fragile-repository-path',
+        detail: line.trim(),
+        line: index + 1,
+        message: 'nested tests must resolve repository files through tests/helpers/paths.js',
+      });
+    });
+  }
+  return findings;
+}
+
+/**
  * Findings that are known and accepted while the suite is migrated. Each entry
  * is `<relative file>::<rule>::<detail>`. Keep this list shrinking.
  */
@@ -343,7 +399,11 @@ function analyze() {
     }
   }
 
-  return findings.concat(checkCollisions(byValue));
+  return findings.concat(
+    checkCollisions(byValue),
+    checkIgnoredTestPaths(),
+    checkFragileRepositoryPaths()
+  );
 }
 
 /**
@@ -406,4 +466,6 @@ module.exports = {
   findTopLevelMutations,
   restoresLater,
   keyOf,
+  checkIgnoredTestPaths,
+  checkFragileRepositoryPaths,
 };
