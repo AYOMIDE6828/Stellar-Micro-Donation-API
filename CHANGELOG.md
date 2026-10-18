@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rotationLockMiddleware` caches rotation status (`ROTATION_LOCK_CACHE_TTL_MS`), fails open with a rate-limited warning when the lock is unreadable, and migration 040 now actually creates `rotation_locks` (#1697)
 - Admin backup routes are mounted at `/admin/backups` as documented; added `POST /admin/backups/:backupId/verify` and OpenAPI/RBAC coverage (#1698)
 
+### Deprecated
+- Unversioned API paths now redirect to their versioned equivalents with `308 Permanent Redirect` and carry `Deprecation: true`, `Sunset: Sat, 01 Jan 2027 00:00:00 GMT` and `Link: </api/v1/...>; rel="successor-version"` headers (#1802, #1803):
+  - All legacy paths covered by the #738 redirects (e.g. `/stats/overpayments`, `/stats/memo-collisions`) now emit the deprecation headers
+  - `/channels` is no longer mounted directly; it redirects to `/api/v1/channels` with the same headers (#1803)
+  - Legacy-path usage is logged and counted in metrics per API key so remaining callers can be identified
+  - **Removal date: 2027-01-01.** After this date the unversioned redirects (including `/channels`) will be removed. Migrate all clients to `/api/v1/*` before then; see `docs/VERSIONING_STRATEGY.md`.
+
 ### Security
 - Remove `clientIp` and `protocol` from `GET /health` response to prevent IP enumeration (#758)
 - Add allowlist validation for `category` and `severity` filter parameters in `GET /admin/audit-logs` to prevent SQL injection (#760)
