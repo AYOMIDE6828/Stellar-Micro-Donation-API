@@ -240,6 +240,65 @@ class MockStellarService extends StellarServiceInterface {
     this._setWalletAssetBalance(destWallet, asset, destBalance + amountNum);
   }
 
+  /**
+   * Snapshot the mutable state touched by a payment/donation so that a
+   * failure occurring after validation (e.g. a simulated network error)
+   * can be rolled back, leaving balances and transaction history equal to
+   * the pre-operation state.
+   */
+  _snapshotPaymentState(wallets) {
+    const walletSnapshots = [];
+    for (const wallet of wallets) {
+      if (!wallet) continue;
+      walletSnapshots.push({
+        wallet,
+        balance: wallet.balance,
+        assetBalances: wallet.assetBalances
+          ? { ...wallet.assetBalances }
+          : undefined,
+      });
+    }
+
+    const transactionSnapshots = new Map();
+    for (const [key, list] of this.transactions.entries()) {
+      transactionSnapshots.set(key, list.slice());
+    }
+
+    return { walletSnapshots, transactionSnapshots };
+  }
+
+  _restorePaymentState(snapshot) {
+    if (!snapshot) return;
+    for (const entry of snapshot.walletSnapshots) {
+      entry.wallet.balance = entry.balance;
+      if (entry.assetBalances === undefined) {
+        delete entry.wallet.assetBalances;
+      } else {
+        entry.wallet.assetBalances = { ...entry.assetBalances };
+      }
+    }
+
+    this.transactions.clear();
+    for (const [key, list] of snapshot.transactionSnapshots.entries()) {
+      this.transactions.set(key, list.slice());
+    }
+  }
+
+  /**
+   * Run a state-mutating operation atomically: if the operation throws
+   * (including simulated network failures), all wallet balances and
+   * transaction history are restored to their pre-operation values.
+   */
+  async _runAtomically(wallets, operation) {
+    const snapshot = this._snapshotPaymentState(wallets);
+    try {
+      return await operation();
+    } catch (error) {
+      this._restorePaymentState(snapshot);
+      throw error;
+    }
+  }
+
   _storeTransaction(transaction) {
     if (!this.transactions.has(transaction.source)) {
       this.transactions.set(transaction.source, []);

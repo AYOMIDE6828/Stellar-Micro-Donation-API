@@ -37,6 +37,12 @@ const {
 const timerRegistry = require('../utils/timerRegistry');
 const leaderElection = require('../utils/leaderElection');
 
+function clearIntervalHandle(handle) {
+  if (!handle) return;
+  if (typeof handle.clear === 'function') handle.clear();
+  else clearInterval(handle);
+}
+
 class RecurringDonationScheduler {
   /**
    * @param {Object} stellarService - StellarService or MockStellarService instance
@@ -111,7 +117,7 @@ class RecurringDonationScheduler {
       this.checkInterval,
       'recurring-donation-scheduler'
     );
-    this.intervalId.unref();
+    if (typeof this.intervalId.unref === 'function') this.intervalId.unref();
 
     const correlation = getCorrelationSummary();
     log.info("RECURRING_SCHEDULER", "Scheduler started", {
@@ -129,7 +135,7 @@ class RecurringDonationScheduler {
     if (!this.isRunning) return;
 
     if (this.intervalId) {
-      this.intervalId.clear();
+      clearIntervalHandle(this.intervalId);
       this.intervalId = null;
     }
 
@@ -150,7 +156,7 @@ class RecurringDonationScheduler {
       this.checkInterval,
       'recurring-donation-scheduler'
     );
-    this.intervalId.unref();
+    if (typeof this.intervalId.unref === 'function') this.intervalId.unref();
 
     const { correlationId, traceId } = getCorrelationSummary();
     log.info('RECURRING_SCHEDULER', 'Scheduler resumed', { correlationId, traceId });
@@ -196,7 +202,7 @@ class RecurringDonationScheduler {
 
     return withBackgroundContext('scheduler_stop', () => {
       if (this.intervalId) {
-        this.intervalId.clear();
+        clearIntervalHandle(this.intervalId);
         this.intervalId = null;
       }
       this.isRunning = false;
@@ -222,7 +228,7 @@ class RecurringDonationScheduler {
     if (!this.isRunning) return { waited: 0, interrupted: 0 };
 
     if (this.intervalId) {
-      this.intervalId.clear();
+      clearIntervalHandle(this.intervalId);
       this.intervalId = null;
     }
     this.isRunning = false;

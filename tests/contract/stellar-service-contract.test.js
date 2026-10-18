@@ -9,7 +9,7 @@
  */
 
 const MockStellarService = require('../../src/services/MockStellarService');
-const StellarService = require('../../src/services/stellar/StellarService');
+const StellarService = require('../../src/services/StellarService');
 
 // Canonical flat public API that both implementations must expose.
 const REQUIRED_METHODS = [
