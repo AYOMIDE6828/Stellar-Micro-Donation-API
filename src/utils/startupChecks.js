@@ -181,7 +181,6 @@ async function checkDatabaseDiagnostics() {
     const pragmas = await Database.getDiagnosticPragmas();
 
     const journalMode = (pragmas.journalMode || 'UNKNOWN').toUpperCase();
-    const synchronous = (pragmas.synchronous || 'UNKNOWN').toString();
 
     if (journalMode === 'WAL') {
       pass('Database WAL mode', 'enabled (concurrent reads during writes)');

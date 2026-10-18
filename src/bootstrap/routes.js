@@ -10,7 +10,6 @@
 'use strict';
 
 const express = require('express');
-const StellarSdk = require('stellar-sdk');
 const asyncHandler = require('../utils/asyncHandler');
 const log = require('../utils/log');
 const requireApiKey = require('../middleware/apiKey');
@@ -19,7 +18,7 @@ const { payloadSizeLimiter, ENDPOINT_LIMITS } = require('../middleware/payloadSi
 const { healthCheckRateLimiter } = require('../middleware/rateLimiter');
 const { parseCursorPaginationQuery } = require('../utils/pagination');
 const { errorHandler, notFoundHandler } = require('../middleware/errorHandler');
-const { registerMethod, clearRegistry } = require('../middleware/methodRegistry');
+const { registerMethod, clearRegistry, assertNoDuplicateRoutes } = require('../middleware/methodRegistry');
 const { optionsHandler, methodNotAllowedHandler } = require('../middleware/methodNotAllowedHandler');
 const { DEPRECATION_SUNSET } = require('../middleware/deprecation');
 const HealthCheckService = require('../services/HealthCheckService');
@@ -30,10 +29,10 @@ const state = require('./state');
 // ── Versioned API v1 routes ────────────────────────────────────────────────────
 const V1_ROUTES = [
   ['/fees',                           require('../routes/fees')],
-  ['/wallets',                        require('../routes/wallet')],
+  ['/wallets',                        require('../routes/wallets')],
   ['/wallets',                        require('../routes/signers').thresholdsRouter],
   ['/',                               require('../routes/recovery')],
-  ['/donations',                      require('../routes/donation')],
+  ['/donations',                      require('../routes/donations')],
   ['/donations',                      require('../routes/receipt')],
   ['/donations',                      require('../routes/disputes')],
   ['/donations/recurring',            require('../routes/recurringDonation')],
@@ -52,9 +51,8 @@ const V1_ROUTES = [
   ['/tools',                          require('../routes/tools')],
   ['/auth',                           require('../routes/auth')],
   ['/docs',                           require('../routes/docs')],
-  ['/transactions',                   require('../routes/transaction')],
+  ['/transactions',                   require('../routes/transactions')],
   ['/contracts',                      require('../routes/contracts')],
-  ['/transactions/bump-sequence',     require('../routes/transactions/bump-sequence')],
   ['/claimable-balances',             require('../routes/claimableBalances')],
   ['/liquidity-pools',                require('../routes/liquidity-pools')],
   ['/channels',                       require('../routes/channels')],
@@ -85,6 +83,7 @@ const ADMIN_ROUTES = [
   ['/admin/circuit-breaker',          require('../routes/admin/circuitBreaker')],
   ['/admin/corporate-matching',       require('../routes/corporateMatching').adminRouter],
   ['/admin/encryption',               require('../routes/admin/encryption')],
+  ['/admin/geo-blocking',             require('../routes/admin/geoBlocking')],
   ['/admin/impact-metrics',           require('../routes/admin/impactMetrics')],
   ['/admin/sdg-mapping',              require('../routes/admin/impactMetrics')],
   ['/admin/matching-programs',        require('../routes/admin/matchingPrograms')],
@@ -268,18 +267,8 @@ function mountRoutes(app, services = {}) {
     return res.redirect(308, `/api/v1${req.url}`);
   });
 
-  // ── SEP-0010 Stellar TOML ─────────────────────────────────────────────────
-  app.get('/.well-known/stellar.toml', (req, res) => {
-    const host = req.get('host') || 'localhost';
-    const scheme = req.protocol || 'https';
-    const authServer = `${scheme}://${host}/auth`;
-    const signingKey = process.env.SERVICE_SIGNING_KEY || process.env.SERVICE_SECRET_KEY || process.env.STELLAR_SECRET || '';
-    const tomlContents = ['VERSION = "1.0.0"', `AUTH_SERVER = "${authServer}"`];
-    if (signingKey) {
-      tomlContents.push(`SIGNING_KEY = "${StellarSdk.Keypair.fromSecret(signingKey).publicKey()}"`);
-    }
-    res.type('text/plain').send(tomlContents.join('\n'));
-  });
+  // GET /.well-known/stellar.toml (federation + SEP-0010 hints) is served by
+  // routes/federation.js, mounted above.
 
   // ── OpenAPI / Swagger UI (Issue #634, #740) ───────────────────────────────
   try {
@@ -535,7 +524,6 @@ function mountRoutes(app, services = {}) {
   if (require('../config/env').readEnv('ENABLE_CHANGELOG_ENDPOINT')) {
     const changelogRoutes = require('../routes/changelog');
     app.use('/api/v1/changelog', changelogRoutes);
-    app.get('/api/v1/changelog', (req, res, next) => next()); // ensure GET / is handled
   }
 
   // ── Method registry population ────────────────────────────────────────────
@@ -561,6 +549,9 @@ function mountRoutes(app, services = {}) {
       }
     }
   }
+
+  // Fail startup if the same method + path is defined twice (issue #1779).
+  assertNoDuplicateRoutes();
 
   // ── 405 / OPTIONS pipeline ────────────────────────────────────────────────
   // optionsHandler: returns 200 + Allow for OPTIONS on known routes

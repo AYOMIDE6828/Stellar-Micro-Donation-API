@@ -28,7 +28,7 @@ const GRANDFATHERED_LARGE_FILES = [
   'src/services/LeaderboardStatsService.js',
   'src/services/ApiKeyUsageService.js',
   'src/routes/stream.js',
-  'src/routes/transaction.js',
+  'src/routes/transactions/core.js',
   'src/routes/campaigns.js',
   'src/routes/apiKeys.js',
   'src/routes/assets.js',
