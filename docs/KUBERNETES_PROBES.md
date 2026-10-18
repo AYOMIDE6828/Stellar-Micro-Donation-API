@@ -79,16 +79,17 @@ readinessProbe:
 
 ```yaml
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
-  name: stellar-donation-api
+  name: stellar-micro-donation-api
 spec:
-  replicas: 2
+  serviceName: stellar-micro-donation-api
+  replicas: 1
   template:
     spec:
       containers:
         - name: api
-          image: your-registry/stellar-micro-donation-api:latest
+          image: stellar-micro-donation-api:1.0.0
           ports:
             - containerPort: 3000
           env:
@@ -151,3 +152,24 @@ healthcheck:
 For Kubernetes deployments use the dedicated `/health/live` and `/health/ready` probes
 instead of `/health`, as they are not rate-limited and return the minimal payload that
 the kubelet needs.
+
+## StatefulSet reference
+
+The checked-in `deploy/kubernetes/deployment.yaml` uses a single-replica StatefulSet
+for SQLite. It probes `/health/live` for process liveness and `/health/ready` for
+traffic readiness, with named port `http` (3000). The readiness probe intentionally
+fails during startup, dependency failures, and graceful shutdown; the liveness probe
+does not depend on Horizon or SQLite and should only restart an unhealthy process.
+
+The deployment uses a 5-second `preStop` sleep plus a 40-second termination grace
+period. This gives the readiness transition time to propagate before the application
+uses its shutdown budget. Verify probe state without changing the application:
+
+```bash
+kubectl -n <namespace> describe pod -l app.kubernetes.io/name=stellar-micro-donation-api
+kubectl -n <namespace> get events --sort-by=.lastTimestamp
+```
+
+Do not replace these probes with `/health` in Kubernetes: `/health` is the detailed,
+rate-limited endpoint, while the dedicated probe endpoints are intentionally minimal
+and excluded from rate limiting.
