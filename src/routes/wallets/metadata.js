@@ -18,7 +18,6 @@ const asyncHandler = require('../../utils/asyncHandler');
 const Database = require('../../utils/database');
 const WalletService = require('../../services/WalletService');
 const AuditLogService = require('../../services/AuditLogService');
-const log = require('../../utils/log');
 const { getStellarService } = require('../../config/stellar');
 const {
   walletIdSchema,

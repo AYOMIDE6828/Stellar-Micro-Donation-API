@@ -1,9 +1,24 @@
 /**
- * Wallet Routes - Index Router
+ * Wallet Routes - Composition Layer
  *
- * RESPONSIBILITY: Core wallet CRUD operations (create, list, bulk import, funding)
+ * RESPONSIBILITY: Mount decomposed wallet sub-routers (issue #1212)
  * OWNER: Backend Team
- * DEPENDENCIES: WalletService, middleware (auth, RBAC)
+ * DEPENDENCIES: Wallet sub-routers in this directory
+ *
+ * This file now serves as a thin composition layer that mounts focused
+ * sub-routers, each handling specific wallet operations:
+ * - crud.js: CRUD + bulk operations
+ * - metadata.js: Wallet metadata (get, update, delete)
+ * - balance-history.js: Balance and transaction history
+ * - home-domain.js: Home domain management
+ * - inflation.js: Inflation destination
+ * - sponsorship.js: Account sponsorship
+ * - trustlines.js: Trustline management
+ * - data-entries.js: Account data
+ * - merge.js: Account merging
+ * - limits-config.js: Wallet limits and config
+ *
+ * See docs/WALLET_ROUTES_COMPOSITION.md for architecture details.
  */
 
 const express = require('express');
@@ -23,7 +38,6 @@ const Database = require('../../utils/database');
 const Wallet = require('../../models/wallet');
 const WalletService = require('../../services/WalletService');
 const AuditLogService = require('../../services/AuditLogService');
-const log = require('../../utils/log');
 const requireApiKey = require('../../middleware/apiKey');
 const { getStellarService } = require('../../config/stellar');
 const { walletCreateSchema, walletIdSchema } = require('./helpers');
@@ -44,9 +58,55 @@ function getBulkMaxRows() {
 
 // ─── POST /wallets ───────────────────────────────────────────────────────
 /**
- * Create wallet metadata
- * Body: { address: string (required), label?: string, ownerName?: string, sponsored?: boolean }
- * Requires wallets:create permission
+ * @openapi
+ * /wallets:
+ *   post:
+ *     summary: Create wallet metadata
+ *     description: Registers metadata for a Stellar wallet address. Requires the `wallets:create` permission.
+ *     tags:
+ *       - Wallets
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - address
+ *             properties:
+ *               address:
+ *                 type: string
+ *                 description: Valid Stellar Ed25519 public key
+ *                 example: GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF
+ *               label:
+ *                 type: string
+ *                 example: Main wallet
+ *               ownerName:
+ *                 type: string
+ *                 example: Jane Doe
+ *               sponsored:
+ *                 type: boolean
+ *                 default: false
+ *     responses:
+ *       201:
+ *         description: Wallet created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/Wallet'
+ *       400:
+ *         description: Missing or invalid address
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
  */
 router.post(
   '/',
@@ -102,12 +162,80 @@ router.post(
 
 // ─── GET /wallets ────────────────────────────────────────────────────────
 /**
- * List wallets with cursor-based pagination
- * Query params:
- *   - limit: page size (default 20, max 100)
- *   - cursor: opaque pagination cursor
- *   - direction: 'next' | 'prev' (default 'next')
- *   - sort: 'id:asc'|'id:desc'|'createdAt:asc'|'createdAt:desc'|'publicKey:asc'|'publicKey:desc'
+ * @openapi
+ * /wallets:
+ *   get:
+ *     summary: List wallets
+ *     description: Returns wallets using cursor-based pagination. Requires the `wallets:read` permission.
+ *     tags:
+ *       - Wallets
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *           maximum: 100
+ *         description: Page size
+ *       - in: query
+ *         name: cursor
+ *         schema:
+ *           type: string
+ *         description: Opaque pagination cursor
+ *       - in: query
+ *         name: direction
+ *         schema:
+ *           type: string
+ *           enum: [next, prev]
+ *           default: next
+ *       - in: query
+ *         name: sort
+ *         schema:
+ *           type: string
+ *           enum:
+ *             - id:asc
+ *             - id:desc
+ *             - createdAt:asc
+ *             - createdAt:desc
+ *             - publicKey:asc
+ *             - publicKey:desc
+ *           default: id:asc
+ *     responses:
+ *       200:
+ *         description: Paginated list of wallets
+ *         headers:
+ *           X-Total-Count:
+ *             schema:
+ *               type: integer
+ *             description: Total number of wallets
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Wallet'
+ *                 count:
+ *                   type: integer
+ *                 total:
+ *                   type: integer
+ *                 nextCursor:
+ *                   type: string
+ *                   nullable: true
+ *                 meta:
+ *                   type: object
+ *       400:
+ *         description: Invalid sort or pagination parameters
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
  */
 router.get(
   '/',
@@ -148,9 +276,67 @@ router.get(
 
 // ─── POST /wallets/bulk-import ───────────────────────────────────────────
 /**
- * Bulk import wallets from CSV file
- * Admin only, rate limited
- * File format: CSV with headers (address, label?, ownerName?)
+ * @openapi
+ * /wallets/bulk-import:
+ *   post:
+ *     summary: Bulk import wallets from CSV
+ *     description: Imports wallets from a CSV file. Admin only and rate limited. CSV must include an `address` header column; optional `label` and `ownerName` columns are supported.
+ *     tags:
+ *       - Wallets
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Import summary
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     imported:
+ *                       type: integer
+ *                     skipped:
+ *                       type: integer
+ *                     failed:
+ *                       type: integer
+ *                     errors:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           row:
+ *                             type: integer
+ *                           address:
+ *                             type: string
+ *                           reason:
+ *                             type: string
+ *       400:
+ *         description: Missing file, parse error, empty file, or invalid header
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (admin only)
+ *       413:
+ *         description: File too large
+ *       422:
+ *         description: Row limit exceeded
  */
 router.post(
   '/bulk-import',
@@ -187,105 +373,61 @@ router.post(
         });
       }
 
-      let rows;
-      try {
-        rows = parseCsvSync(req.file.buffer, {
-          columns: true,
-          skip_empty_lines: true,
-          trim: true,
-        });
-      } catch (parseErr) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'PARSE_ERROR', message: `CSV parse error: ${parseErr.message}` },
-        });
-      }
-
-      if (rows.length === 0) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'EMPTY_FILE', message: 'CSV file contains no data rows' },
-        });
-      }
-
-      const maxRows = getBulkMaxRows();
-      if (rows.length > maxRows) {
-        return res.status(422).json({
-          success: false,
-          error: {
-            code: 'ROW_LIMIT_EXCEEDED',
-            message: `File contains ${rows.length} rows which exceeds the maximum of ${maxRows}.`,
-            details: { submitted: rows.length, limit: maxRows },
-          },
-        });
-      }
-
-      if (!Object.prototype.hasOwnProperty.call(rows[0], 'address')) {
-        return res.status(400).json({
-          success: false,
-          error: {
-            code: 'INVALID_HEADER',
-            message: 'CSV must have a header row with at least an "address" column',
-          },
-        });
-      }
-
-      let imported = 0;
-      let skipped = 0;
-      let failed = 0;
-      const errors = [];
-
-      const StellarSdk = require('stellar-sdk');
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const rowNum = i + 2;
-        const address = (row.address || '').trim();
-
-        if (!address) {
-          failed++;
-          errors.push({ row: rowNum, address: '', reason: 'Missing address' });
-          continue;
-        }
-
-        if (!StellarSdk.StrKey.isValidEd25519PublicKey(address)) {
-          failed++;
-          errors.push({ row: rowNum, address, reason: 'Invalid Stellar public key' });
-          continue;
-        }
-
-        const existing = Wallet.getByAddress(address);
-        if (existing) {
-          skipped++;
-          continue;
-        }
-
-        try {
-          Wallet.create({
-            address,
-            label: row.label || null,
-            ownerName: row.ownerName || null,
-          });
-          imported++;
-        } catch (createErr) {
-          failed++;
-          errors.push({ row: rowNum, address, reason: createErr.message });
-        }
-      }
-
-      return res.status(200).json({
-        success: true,
-        data: { imported, skipped, failed, errors },
-      });
-    } catch (error) {
-      next(error);
-    }
-  })
-);
-
-// ─── POST /wallets/:id/fund ──────────────────────────────────────────────
 /**
- * Fund a wallet via Stellar Friendbot (testnet only)
- * Rate limited to 5 requests per minute per API key
+ * @openapi
+ * /wallets/{id}/fund:
+ *   post:
+ *     summary: Fund a wallet via Stellar Friendbot
+ *     description: Funds a wallet on testnet using Friendbot. Rate limited to 5 requests per minute per API key. Requires the `wallets:update` permission.
+ *     tags:
+ *       - Wallets
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Wallet ID
+ *       - in: query
+ *         name: force
+ *         schema:
+ *           type: boolean
+ *           default: false
+ *         description: Fund again even if the wallet already has a balance
+ *     responses:
+ *       200:
+ *         description: Wallet funded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     walletId:
+ *                       type: string
+ *                     publicKey:
+ *                       type: string
+ *                     funded:
+ *                       type: boolean
+ *                     transactionHash:
+ *                       type: string
+ *       400:
+ *         description: Wallet already funded (use force=true)
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden or friendbot unavailable in production
+ *       404:
+ *         description: Wallet not found
+ *       429:
+ *         description: Rate limit exceeded
  */
 router.post(
   '/:id/fund',
@@ -324,24 +466,41 @@ router.post(
             });
           }
         }
-      } catch (err) {
-        // Account not found, safe to fund
       }
-
-      const result = await stellarService.fundAccountWithFriendbot(wallet.publicKey);
-      return res.json({
-        success: true,
-        data: {
-          walletId: wallet.id,
-          publicKey: wallet.publicKey,
-          funded: true,
-          transactionHash: result.hash
-        }
-      });
-    } catch (error) {
-      next(error);
     }
-  })
-);
+    return originalJson(body);
+  };
+  next();
+}
+
+// Apply response sanitizer middleware to all wallet endpoints
+router.use(walletResponseSanitizer);
+
+// Mount decomposed sub-routers
+const crudRouter = require('./crud');
+const metadataRouter = require('./metadata');
+const balanceHistoryRouter = require('./balance-history');
+const homeDomainRouter = require('./home-domain');
+const inflationRouter = require('./inflation');
+const sponsorshipRouter = require('./sponsorship');
+const trustlinesRouter = require('./trustlines');
+const dataEntriesRouter = require('./data-entries');
+const mergeRouter = require('./merge');
+const limitsConfigRouter = require('./limits-config');
+
+// Mount all routes (sub-routers handle their own paths)
+router.use('/', crudRouter);
+router.use('/', metadataRouter);
+router.use('/', balanceHistoryRouter);
+router.use('/', homeDomainRouter);
+router.use('/', inflationRouter);
+router.use('/', sponsorshipRouter);
+router.use('/', trustlinesRouter);
+router.use('/', dataEntriesRouter);
+router.use('/', mergeRouter);
+router.use('/', limitsConfigRouter);
 
 module.exports = router;
+module.exports.ALLOWED_WALLET_FIELDS = ALLOWED_WALLET_FIELDS;
+module.exports.walletResponseSanitizer = walletResponseSanitizer;
+

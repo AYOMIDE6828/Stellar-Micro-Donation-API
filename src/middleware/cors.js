@@ -95,7 +95,7 @@ function parseAllowedOrigins(raw) {
 function wildcardToRegex(pattern) {
   if (!pattern.startsWith('*.')) return null;
   const escaped = pattern.slice(2).replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^https?://[^.]+\.${escaped}$`);
+  return new RegExp(`^https?://[^.]+\\.${escaped}$`);
 }
 
 /**

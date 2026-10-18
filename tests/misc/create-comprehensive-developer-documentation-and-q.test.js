@@ -387,8 +387,8 @@ describe('Documented route files contain expected endpoint handlers', () => {
     expect(content).toMatch(/router\.get/);
   });
 
-  it('transaction.js handles transaction routes', () => {
-    const content = readDoc('src/routes/transaction.js');
+  it('transactions/core.js handles transaction routes', () => {
+    const content = readDoc('src/routes/transactions/core.js');
     expect(content).toMatch(/router\.(get|post)/);
   });
 });

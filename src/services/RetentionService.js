@@ -22,7 +22,7 @@ const Database = require('../utils/database');
 const log = require('../utils/log');
 const timerRegistry = require('../utils/timerRegistry');
 const config = require('../config');
-const { MS_PER_DAY, DB_ESTIMATED_ROW_BYTES, DEFAULT_RETENTION_SCHEDULE } = require('../constants');
+const { MS_PER_DAY, DB_ESTIMATED_ROW_BYTES } = require('../constants');
 
 /**
  * Reads the configured retention period (days) for a given category.
@@ -319,14 +319,6 @@ class RetentionService {
    * @returns {Promise<Object>} Status object
    */
   async getStatus() {
-    const retentionSnapshot = {
-      donationRetentionDays: resolveRetentionDays('donations'),
-      auditLogRetentionDays: resolveRetentionDays('auditLogs'),
-      idempotencyRetentionDays: resolveRetentionDays('idempotency'),
-      dryRun: this.dryRun,
-      scheduleCron: config.retention.scheduleCron,
-    };
-
     const [txTotal, txAnon, auditTotal, idempotencyTotal] = await Promise.all([
       Database.get('SELECT COUNT(*) as n FROM transactions').catch(() => ({ n: 0 })),
       Database.get(`SELECT COUNT(*) as n FROM transactions WHERE memo LIKE 'anon:%'`).catch(() => ({ n: 0 })),
@@ -335,7 +327,7 @@ class RetentionService {
     ]);
 
     return {
-      config,
+      config: retentionSnapshot,
       stats: {
         donations: { total: txTotal.n, anonymized: txAnon.n },
         auditLogs: { total: auditTotal.n },

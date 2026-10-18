@@ -35,6 +35,7 @@ const MAX_STROOPS = 9223372036854775807n;
  * Rejects signs, exponents, whitespace, and empty strings.
  * @type {RegExp}
  */
+// eslint-disable-next-line security/detect-unsafe-regex -- anchored; repeated groups are separated by a literal delimiter, so matching is linear
 const AMOUNT_REGEX = /^\d+(\.\d{1,7})?$/;
 
 /**

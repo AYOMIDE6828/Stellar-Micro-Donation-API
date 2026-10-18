@@ -30,9 +30,10 @@ const mockCronTask = {
   destroy:  jest.fn(),
   nextDate: jest.fn(() => new Date('2025-01-01T03:00:00Z')),
 };
+// node-cron is not a project dependency, so the mock must be virtual.
 jest.mock('node-cron', () => ({
   schedule: jest.fn(() => mockCronTask),
-}));
+}), { virtual: true });
 
 const nodeCron = require('node-cron');
 const RestoreTestRunner = require('../src/services/RestoreTestRunner');
