@@ -88,10 +88,12 @@ const NIGHTLY_TARGET_BASELINES = {
     minThroughputRps: 200,
     maxErrorRate: 0.05,
   },
-  // GET /donations: 500 req/s, p95 < 300ms
+  // GET /donations: 500 req/s, p95 < 50ms (issue #1796)
+  // The nightly gate must hold this p95 for 7 consecutive days before the
+  // regression is considered resolved. Keep in sync with docs/SLOs.md.
   'list-donations': {
     p50LatencyMs: 50,
-    p95LatencyMs: 300,
+    p95LatencyMs: 50,
     p99LatencyMs: 600,
     minThroughputRps: 500,
     maxErrorRate: 0.02,
