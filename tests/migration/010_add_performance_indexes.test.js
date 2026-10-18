@@ -10,7 +10,7 @@
  */
 
 const sqlite3 = require('sqlite3').verbose();
-const migration = require('../../src/migrations/010_add_performance_indexes');
+const migration = require('../../src/migrations/012_add_performance_indexes');
 
 // ─── Minimal in-memory db adapter (mirrors migration-runner.test.js) ─────────
 

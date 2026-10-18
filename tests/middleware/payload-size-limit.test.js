@@ -5,7 +5,7 @@
 
 const request = require('supertest');
 const express = require('express');
-const { createPayloadSizeLimiter, formatBytes, DEFAULT_LIMITS } = require('../../src/middleware/payloadSizeLimit');
+const { createPayloadSizeLimiter, formatBytes, DEFAULT_LIMITS } = require('../../src/middleware/payloadSizeLimiter');
 
 describe('Payload Size Limit Middleware', () => {
   let app;

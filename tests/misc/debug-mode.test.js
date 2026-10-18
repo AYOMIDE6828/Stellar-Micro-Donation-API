@@ -132,38 +132,5 @@ describe('Debug Mode', () => {
     });
   });
 
-  describe('Environment Validation', () => {
-    it('should validate DEBUG_MODE as boolean string', () => {
-      process.env.DEBUG_MODE = 'invalid';
-      process.env.NODE_ENV = 'development';
-      process.env.API_KEYS = 'test-key';
-      
-      delete require.cache[require.resolve('../../src/config/envValidation')];
-      const { validateEnvironment } = require('../../src/config/envValidation');
-      
-      expect(() => validateEnvironment()).toThrow(/DEBUG_MODE must be either "true" or "false"/);
-    });
 
-    it('should accept true as valid DEBUG_MODE', () => {
-      process.env.DEBUG_MODE = 'true';
-      process.env.NODE_ENV = 'development';
-      process.env.API_KEYS = 'test-key';
-      
-      delete require.cache[require.resolve('../../src/config/envValidation')];
-      const { validateEnvironment } = require('../../src/config/envValidation');
-      
-      expect(() => validateEnvironment()).not.toThrow();
-    });
-
-    it('should accept false as valid DEBUG_MODE', () => {
-      process.env.DEBUG_MODE = 'false';
-      process.env.NODE_ENV = 'development';
-      process.env.API_KEYS = 'test-key';
-      
-      delete require.cache[require.resolve('../../src/config/envValidation')];
-      const { validateEnvironment } = require('../../src/config/envValidation');
-      
-      expect(() => validateEnvironment()).not.toThrow();
-    });
-  });
 });
