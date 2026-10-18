@@ -156,6 +156,9 @@ async function startServer(app, overrideServices = {}) {
           await loadFlagsFromEnv(process.env.FEATURE_FLAGS);
         }
 
+        // Verify the shared rate limit store; falls back to memory if Redis is down (#1777)
+        await require('../services/rateLimitStores').initializeRateLimitStore();
+
         await WebhookService.WebhookService.initTable();
         await validateRBAC();
         await DonationExportService.initialize();
@@ -375,6 +378,9 @@ async function startServer(app, overrideServices = {}) {
         if (stellarService.circuitBreaker) {
           stellarService.circuitBreaker.stopSync();
         }
+
+        // Close the shared rate limit store (Redis connection, if any)
+        await require('../services/rateLimitStores').shutdownRateLimitStore();
 
         // 8. Checkpoint SQLite WAL (must happen before DB close, after all writes)
         try {
