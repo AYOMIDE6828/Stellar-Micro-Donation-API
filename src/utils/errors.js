@@ -49,6 +49,9 @@ const ERROR_CODES = {
   DUPLICATE_DONATION:    { code: 'DUPLICATE_DONATION',    numeric: 4001 },
 
   // Business logic errors (5000-5099)
+  // INSUFFICIENT_BALANCE: sender's available balance (balance - minimum reserve -
+  // selling liabilities - fee) cannot cover the requested amount. Thrown before
+  // submission so clients can surface "insufficient funds" without a network round-trip.
   INSUFFICIENT_BALANCE: { code: 'INSUFFICIENT_BALANCE', numeric: 5000 },
   TRANSACTION_FAILED:   { code: 'TRANSACTION_FAILED',   numeric: 5001 },
   INVALID_STATE_TRANSITION: { code: 'INVALID_STATE_TRANSITION', numeric: 5015 },

@@ -1,7 +1,7 @@
 'use strict';
 
 const sqlite3 = require('sqlite3').verbose();
-const migration = require('../../src/migrations/018_api_key_rate_limit');
+const migration = require('../../src/migrations/031_api_key_rate_limit');
 
 function createDb() {
   const sqlite = new sqlite3.Database(':memory:');

@@ -231,8 +231,16 @@ const options = {
     path.join(__dirname, '../app.js'),
     // ── Admin routes ──────────────────────────────────────────────────────
     path.join(__dirname, '../routes/admin/*.js'),
+    path.join(__dirname, '../routes/auditLogExport.js'),
+    path.join(__dirname, '../routes/admin/inspect.js'),
+    path.join(__dirname, '../routes/admin/geoRules.js'),
+    path.join(__dirname, '../routes/admin/backup.js'),
     // ── /api/v2 routes ────────────────────────────────────────────────────
     path.join(__dirname, '../routes/v2/*.js'),
+    path.join(__dirname, '../routes/v2/donations.js'),
+    path.join(__dirname, '../routes/v2/wallets.js'),
+    // ── Corporate matching ────────────────────────────────────────────────
+    path.join(__dirname, '../routes/corporateMatching.js'),
   ],
 };
 

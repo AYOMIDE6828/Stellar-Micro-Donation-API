@@ -1145,6 +1145,93 @@ class Database {
   }
 
   /**
+   * Execute a callback inside a single SQLite transaction on one pooled connection.
+   *
+   * This is the preferred helper for multi-step writes that must be atomic:
+   * every statement issued through the provided transaction handle runs on the
+   * same connection, and the whole unit is either committed or rolled back.
+   * If the callback throws (or the COMMIT fails), a ROLLBACK is issued so that
+   * failed operations leave no partial writes behind.
+   *
+   * The callback receives a transaction handle with `run`, `get` and `all`
+   * methods bound to the transaction's connection. Nested calls are not
+   * supported and will throw.
+   *
+   * @param {function(tx: {run: Function, get: Function, all: Function}): Promise<*>} callback
+   *   Async function receiving the bound transaction handle.
+   * @returns {Promise<*>} The value returned by the callback.
+   */
+  static async withTransaction(callback) {
+    if (typeof callback !== 'function') {
+      throw new DatabaseError('withTransaction requires a callback function');
+    }
+
+    await this.ensureInitialized();
+
+    const state = this.poolState;
+    if (state.closing) {
+      throw new DatabaseError('Database pool is shutting down');
+    }
+
+    const lease = await this.acquireConnection();
+    const db = lease.db;
+
+    const runOnConn = (sql, params = []) => new Promise((resolve, reject) => {
+      db.run(sql, params, function(err) {
+        if (err) return reject(Database.mapDatabaseError(err, 'Transaction operation failed'));
+        resolve({ id: this.lastID, changes: this.changes });
+      });
+    });
+
+    const getOnConn = (sql, params = []) => new Promise((resolve, reject) => {
+      db.get(sql, params, (err, row) => {
+        if (err) return reject(Database.mapDatabaseError(err, 'Transaction query failed'));
+        resolve(row);
+      });
+    });
+
+    const allOnConn = (sql, params = []) => new Promise((resolve, reject) => {
+      db.all(sql, params, (err, rows) => {
+        if (err) return reject(Database.mapDatabaseError(err, 'Transaction query failed'));
+        resolve(rows);
+      });
+    });
+
+    const tx = { run: runOnConn, get: getOnConn, all: allOnConn };
+
+    let began = false;
+    let settled = false;
+
+    try {
+      await runOnConn('BEGIN IMMEDIATE');
+      began = true;
+
+      const result = await callback(tx);
+
+      await runOnConn('COMMIT');
+      settled = true;
+      return result;
+    } catch (err) {
+      if (began && !settled) {
+        try {
+          await runOnConn('ROLLBACK');
+        } catch (rollbackErr) {
+          log.warn('DATABASE', 'Failed to roll back transaction', {
+            error: rollbackErr.message,
+          });
+        }
+      }
+      throw err;
+    } finally {
+      await lease.release().catch((releaseError) => {
+        log.warn('DATABASE', 'Failed to release pooled connection after transaction', {
+          error: releaseError.message,
+        });
+      });
+    }
+  }
+
+  /**
    * Expose pool metrics for health checks and diagnostics.
    *
    * @returns {{total: number, active: number, idle: number, waiting: number, size: number, acquireTimeout: number}}

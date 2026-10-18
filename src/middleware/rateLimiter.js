@@ -11,17 +11,18 @@
 
 const log = require('../utils/log');
 const { calculateRetryAfter } = require('./rateLimitHeaders');
+const { ExpressRateLimitStore } = require('../services/rateLimitStores');
 
-let rateLimit;
+let expressRateLimit;
 let MemoryStore;
 try {
-  rateLimit = require('express-rate-limit');
+  expressRateLimit = require('express-rate-limit');
   // Use the in-memory store explicitly so hot read paths (e.g. list-donations)
   // never perform a per-request DB/Redis round-trip for quota lookups.
   MemoryStore = require('express-rate-limit').MemoryStore;
 } catch (error) {
   // Graceful fallback for environments missing the express-rate-limit dependency
-  rateLimit = () => (req, res, next) => next();
+  expressRateLimit = null;
   MemoryStore = undefined;
 }
 
@@ -34,6 +35,23 @@ try {
  */
 function cheapKeyGenerator(req) {
   return req.apiKey?.id || req.ip;
+}
+
+/**
+ * Build an express-rate-limit limiter that counts through the shared rate
+ * limit store (services/rateLimitStores, #1777) instead of express-rate-limit's
+ * per-process default. Each limiter gets its own adapter and key prefix.
+ *
+ * @param {Object} options - express-rate-limit options plus `storePrefix`
+ * @returns {Function} Express middleware
+ */
+function rateLimit(options = {}) {
+  if (!expressRateLimit) return (req, res, next) => next();
+  const { storePrefix, ...limiterOptions } = options;
+  return expressRateLimit({
+    ...limiterOptions,
+    store: limiterOptions.store || new ExpressRateLimitStore({ prefix: storePrefix }),
+  });
 }
 
 const AuditLogService = require('../services/AuditLogService');
@@ -50,6 +68,7 @@ const AuditLogService = require('../services/AuditLogService');
  * 4. Exhaustion: Responds with HTTP 429 and includes 'retryAfter' metadata to guide client retry logic.
  */
 const donationRateLimiter = rateLimit({
+  storePrefix: 'donation',
   windowMs: 60 * 1000,
   max: 10,
   keyGenerator: (req) => {
@@ -120,6 +139,7 @@ const donationRateLimiter = rateLimit({
  *    so clients know whether the limit is per-key or per-IP.
  */
 const verificationRateLimiter = rateLimit({
+  storePrefix: 'verification',
   windowMs: 60 * 1000,
   max: 30,
   // Use API key ID when present; fall back to IP for unauthenticated requests
@@ -189,6 +209,7 @@ const verificationRateLimiter = rateLimit({
  * Max 10 batch requests per minute per IP.
  */
 const batchRateLimiter = rateLimit({
+  storePrefix: 'batch',
   windowMs: 60 * 1000,
   max: 1,
   keyGenerator: (req) => req.apiKey?.id || req.ip,
@@ -233,6 +254,7 @@ const batchRateLimiter = rateLimit({
  * 3. Exhaustion: Responds with HTTP 429 and includes Retry-After header.
  */
 const bulkImportRateLimiter = rateLimit({
+  storePrefix: 'bulkImport',
   windowMs: 60 * 1000,
   max: 5,
   keyGenerator: (req) => req.apiKey?.id || req.ip,
@@ -339,6 +361,7 @@ function createRateLimiter(options = {}) {
  * 4. Exhaustion: Responds with HTTP 429 and Retry-After header
  */
 const authTokenRateLimiter = rateLimit({
+  storePrefix: 'authToken',
   windowMs: 60 * 1000,
   max: parseInt(process.env.AUTH_TOKEN_RATE_LIMIT || '10'),
   keyGenerator: (req) => req.ip,
@@ -390,6 +413,7 @@ const authTokenRateLimiter = rateLimit({
  * 4. Exhaustion: Responds with HTTP 429 and Retry-After header
  */
 const authRefreshRateLimiter = rateLimit({
+  storePrefix: 'authRefresh',
   windowMs: 60 * 1000,
   max: parseInt(process.env.AUTH_REFRESH_RATE_LIMIT || '20'),
   keyGenerator: (req) => req.ip,
@@ -441,6 +465,7 @@ const authRefreshRateLimiter = rateLimit({
  * 4. Exhaustion: Responds with HTTP 429
  */
 const healthCheckRateLimiter = rateLimit({
+  storePrefix: 'healthCheck',
   windowMs: 60 * 1000,
   max: 60,
   keyGenerator: (req) => req.ip,
@@ -471,6 +496,7 @@ const healthCheckRateLimiter = rateLimit({
  * 3. Exhaustion: Responds with HTTP 429.
  */
 const liveHistoryRateLimiter = rateLimit({
+  storePrefix: 'liveHistory',
   windowMs: 60 * 1000,
   max: 10,
   keyGenerator: (req) => req.apiKey?.id || req.ip,
@@ -492,6 +518,7 @@ const liveHistoryRateLimiter = rateLimit({
 });
 
 module.exports = {
+  sharedRateLimit: rateLimit,
   donationRateLimiter,
   listDonationsRateLimiter,
   cheapKeyGenerator,
@@ -504,6 +531,7 @@ module.exports = {
   liveHistoryRateLimiter,
   createRateLimiter,
   friendbotRateLimiter: rateLimit({
+    storePrefix: 'friendbot',
     windowMs: 60 * 1000,
     max: 5,
     keyGenerator: (req) => req.apiKey?.id || req.ip,
@@ -523,6 +551,7 @@ module.exports = {
     }
   }),
   statsRateLimiter: rateLimit({
+    storePrefix: 'stats',
     windowMs: 60 * 1000,
     max: 30,
     keyGenerator: (req) => {
@@ -585,4 +614,3 @@ module.exports = {
     },
   }),
 };
-

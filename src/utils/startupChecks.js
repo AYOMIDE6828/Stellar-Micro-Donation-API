@@ -15,6 +15,7 @@
 const Database = require('./database');
 const fs = require('fs');
 const path = require('path');
+const { isValidStellarSecretKey } = require('./validators');
 
 const STELLAR_TIMEOUT_MS = 5000;
 
@@ -473,7 +474,6 @@ const STELLAR_SIGNING_KEY_VARS = [
 
 /** Check — presence/validity of Stellar signing keys (#1234) */
 function checkStellarSigningKeys() {
-  const { isValidStellarSecretKey } = require('./validators');
   const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
   const isMock = process.env.MOCK_STELLAR === 'true' || process.env.USE_MOCK_STELLAR === 'true';
   let allOk = true;
@@ -695,26 +695,62 @@ function checkMainnetProductionGuard() {
   return true;
 }
 
-/** Check — Geo-blocking database presence when strict mode is active (#1533) */
+/**
+ * Check — Geo-blocking database presence and strict-mode behaviour (#1533, #1806)
+ *
+ * GEO_STRICT_MODE controls what happens when the MaxMind database is missing:
+ *   - true  (default): fail startup — geo-blocking is a compliance control and
+ *                      must not silently fail open.
+ *   - false:           warn and continue; geo-blocking is inactive (fail open).
+ *
+ * The missing-database warning is emitted through the GEO_BLOCK logger so it
+ * matches the runtime middleware log and is easy to alert on.
+ */
 function checkGeoBlocking() {
   const strictMode = process.env.GEO_STRICT_MODE !== 'false';
   const rawBlocked = process.env.GEO_BLOCKED_COUNTRIES;
   const blockedCountries = rawBlocked ? rawBlocked.split(',').map(s => s.trim()).filter(Boolean) : [];
   const dbPath = process.env.MAXMIND_DB_PATH || path.join(__dirname, '../../data/GeoLite2-Country.mmdb');
+  const dbExists = fs.existsSync(dbPath);
 
-  if (blockedCountries.length > 0) {
-    if (!fs.existsSync(dbPath)) {
-      if (strictMode) {
-        fail('Geo-blocking', `GEO_BLOCKED_COUNTRIES is configured but MaxMind database not found at "${dbPath}" with GEO_STRICT_MODE=true`);
-        return false;
-      }
-      warn('Geo-blocking', `GEO_BLOCKED_COUNTRIES is configured but MaxMind database not found at "${dbPath}" (GEO_STRICT_MODE=false; geo-blocking inactive)`);
-    } else {
-      pass('Geo-blocking', `MaxMind database found, blocking ${blockedCountries.length} country/countries`);
-    }
-  } else {
+  const log = require('./log');
+  const logMissingDb = () => {
+    log.warn('GEO_BLOCK', 'MaxMind database not found', {
+      dbPath,
+      strictMode,
+      blockedCountries: blockedCountries.length,
+      behaviour: strictMode ? 'fail-closed (startup aborted)' : 'fail-open (geo-blocking inactive)',
+    });
+  };
+
+  if (blockedCountries.length === 0) {
     pass('Geo-blocking', 'no country restrictions configured');
+    return true;
   }
+
+  if (!dbExists) {
+    logMissingDb();
+    if (strictMode) {
+      fail(
+        'Geo-blocking',
+        `GEO_BLOCKED_COUNTRIES is configured but MaxMind database not found at "${dbPath}" ` +
+        'with GEO_STRICT_MODE=true — set MAXMIND_DB_PATH to a valid database or set GEO_STRICT_MODE=false to fail open'
+      );
+      return false;
+    }
+    warn(
+      'Geo-blocking',
+      `GEO_BLOCKED_COUNTRIES is configured but MaxMind database not found at "${dbPath}" ` +
+      '(GEO_STRICT_MODE=false; geo-blocking inactive — requests from blocked countries are NOT filtered)'
+    );
+    return true;
+  }
+
+  pass(
+    'Geo-blocking',
+    `MaxMind database found at "${dbPath}", blocking ${blockedCountries.length} country/countries ` +
+    `(GEO_STRICT_MODE=${strictMode})`
+  );
   return true;
 }
 
@@ -800,7 +836,7 @@ async function run({ exitOnFailure = false } = {}) {
   return { passed, results };
 }
 
-module.exports = { run, results, checkMainnetProductionGuard };
+module.exports = { run, results, checkMainnetProductionGuard, checkGeoBlocking };
 
 // Allow running directly: `node src/utils/startupChecks.js`
 if (require.main === module) {
