@@ -31,7 +31,7 @@ jest.mock('./src/events/donationEvents', () => ({ on: jest.fn() }));
 
 const express = require('express');
 const request = require('supertest');
-const streamRouter = require('./src/routes/stream');
+const streamRouter = require('../../src/routes/stream');
 
 const app = express();
 app.use(express.json());

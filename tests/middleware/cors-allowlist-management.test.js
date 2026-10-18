@@ -206,7 +206,7 @@ describe('loadDbOrigins', () => {
 // ─── Admin route handler unit tests ──────────────────────────────────────────
 
 describe('Admin CORS origins route handlers', () => {
-  const corsOriginsRouter = require('../../src/routes/admin/corsOrigins');
+  const corsOriginsRouter = require('../../src/routes/admin/cors');
 
   function makeReqRes(overrides = {}) {
     const req = {

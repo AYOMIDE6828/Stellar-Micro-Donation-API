@@ -47,6 +47,7 @@ jobs:
       - run: npm run check-coverage
       - run: npm run openapi:check
       - run: npm run check:no-json-persistence
+      - run: npm run check:isolation
       - run: npm run changelog:check
       - run: npm audit --audit-level=high
 
@@ -57,7 +58,6 @@ jobs:
         with:
           name: coverage-base-node-${{ matrix.node-version }}
           path: coverage/base
-        continue-on-error: true
 
       # ── Coverage diff: copy base lcov to expected path ─────────────────────
       - name: Prepare base lcov for diff
@@ -134,6 +134,14 @@ jobs:
         with:
           name: coverage-report-node-${{ matrix.node-version }}
           path: coverage/
+          retention-days: 30
+
+      - name: Upload Jest JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jest-results-node-${{ matrix.node-version }}
+          path: coverage/jest-results.json
           retention-days: 30
 
       # Save LCOV as a base artifact so future PRs can diff against it.

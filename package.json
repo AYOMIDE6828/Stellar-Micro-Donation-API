@@ -26,7 +26,7 @@
     "test:chaos": "jest tests/chaos --runInBand --forceExit",
     "test:e2e": "jest --config jest.config.e2e.js",
     "test:coverage": "jest --coverage",
-    "test:coverage:ci": "jest --coverage --ci --maxWorkers=2",
+    "test:coverage:ci": "jest --coverage --ci --maxWorkers=2 --json --outputFile=coverage/jest-results.json",
     "check-coverage": "node scripts/check-coverage.js",
     "lint": "eslint .",
     "lint:security": "eslint . --ext .js --format stylish",

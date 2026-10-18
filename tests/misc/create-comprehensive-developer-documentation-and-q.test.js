@@ -13,7 +13,8 @@ const path = require('path');
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-const ROOT = path.resolve(__dirname, '..');
+const { REPO_ROOT } = require('../helpers/paths');
+const ROOT = REPO_ROOT;
 
 /**
  * Reads a documentation file relative to the project root.

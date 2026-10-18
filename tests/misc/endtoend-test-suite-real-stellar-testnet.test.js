@@ -13,7 +13,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.join(__dirname, '..');
+const { REPO_ROOT } = require('../helpers/paths');
+const ROOT = REPO_ROOT;
 
 // ─── File Existence ───────────────────────────────────────────────────────────
 
