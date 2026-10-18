@@ -57,12 +57,21 @@ class StellarErrorHandler {
       };
     }
 
-    // Insufficient balance: prefer structured result codes when available
-    if (structuredCodeText.includes('op_underfunded') || normalizedMessage.includes('insufficient') || normalizedMessage.includes('underfunded')) {
+    // Insufficient balance: prefer structured result codes when available.
+    // Also honor explicit error codes (e.g. early rejections from DonationService)
+    // so pre-submission and Horizon failures surface the same specific code.
+    const explicitCode = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
+    if (
+      explicitCode === 'INSUFFICIENT_BALANCE' ||
+      structuredCodeText.includes('op_underfunded') ||
+      structuredCodeText.includes('underfunded') ||
+      normalizedMessage.includes('insufficient') ||
+      normalizedMessage.includes('underfunded')
+    ) {
       return {
         status: 400,
         code: 'INSUFFICIENT_BALANCE',
-        message: 'Insufficient balance to complete this transaction.'
+        message: message || 'Insufficient balance to complete this transaction.'
       };
     }
 
