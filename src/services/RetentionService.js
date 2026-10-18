@@ -327,7 +327,7 @@ class RetentionService {
     ]);
 
     return {
-      config,
+      config: retentionSnapshot,
       stats: {
         donations: { total: txTotal.n, anonymized: txAnon.n },
         auditLogs: { total: auditTotal.n },

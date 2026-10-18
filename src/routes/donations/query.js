@@ -27,6 +27,7 @@ const router = express.Router();
 const requireApiKey = require('../../middleware/apiKey');
 const { checkPermission } = require('../../middleware/rbac');
 const { PERMISSIONS } = require('../../utils/permissions');
+const timerRegistry = require('../../utils/timerRegistry');
 const { verificationRateLimiter } = require('../../middleware/rateLimiter');
 const { validateXLMAmount } = require('../../utils/validationHelpers');
 const { validateDateRange } = require('../../middleware/validation');
@@ -997,12 +998,12 @@ router.get('/:id/status', requireApiKey, donationIdParamSchema, asyncHandler(asy
       return;
     }
 
-    const keepaliveInterval = setInterval(() => {
+    const keepaliveInterval = timerRegistry.createInterval(() => {
       res.write(': keepalive\n\n');
     }, 15000);
 
     const timeoutMs = 5 * 60 * 1000;
-    const timeoutTimer = setTimeout(() => {
+    const timeoutTimer = timerRegistry.createTimeout(() => {
       res.write(`event: stream_closed\ndata: ${JSON.stringify({ reason: 'timeout', finalStatus: donation.status })}\n\n`);
       res.end();
     }, timeoutMs);
@@ -1022,8 +1023,8 @@ router.get('/:id/status', requireApiKey, donationIdParamSchema, asyncHandler(asy
     donationEvents.on('donation.failed', statusUpdateHandler);
 
     req.on('close', () => {
-      clearInterval(keepaliveInterval);
-      clearTimeout(timeoutTimer);
+      keepaliveInterval.clear();
+      timeoutTimer.clear();
       donationEvents.off('donation.submitted', statusUpdateHandler);
       donationEvents.off('donation.confirmed', statusUpdateHandler);
       donationEvents.off('donation.failed', statusUpdateHandler);

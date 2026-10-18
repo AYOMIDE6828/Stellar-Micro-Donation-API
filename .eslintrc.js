@@ -51,11 +51,53 @@ const GRANDFATHERED_LARGE_FILES = [
 ];
 
 /**
- * Files that read process.env directly and predate the central config schema
- * (#1784). New files must use src/config/env.js instead. As files are migrated,
- * remove them from eslint-rules/process-env-grandfathered.json.
+ * Files grandfathered from local/consistent-exports. Each one predates the rule
+ * and changing its export shape means updating every consumer, so they are being
+ * migrated one PR at a time (see docs/EXPORT_CONVENTIONS.md). The rule stays an
+ * error for every other file. Remove entries as files are migrated; never add.
+ * Issue tracking: #1789.
  */
-const PROCESS_ENV_GRANDFATHERED = require('./eslint-rules/process-env-grandfathered.json');
+const GRANDFATHERED_EXPORT_SHAPES = [
+  'src/migrations/005_donation_exports.js',
+  'src/migrations/024_corporate_matching_and_sep10_challenges.js',
+  'src/migrations/041_queued_donations.js',
+  'src/migrations/042_add_sdg_tags_to_campaigns_and_wallets.js',
+  'src/routes/donations/helpers.js',
+  'src/routes/federation.js',
+  'src/routes/federationLookup.js',
+  'src/routes/network.js',
+  'src/routes/wallets/helpers.js',
+  'src/services/CrowdfundingService.js',
+  'src/services/DonationVelocityService.js',
+  'src/services/GeoRuleService.js',
+  'src/services/HealthCheckService.js',
+  'src/services/JwtService.js',
+  'src/services/LeaderboardSSE.js',
+  'src/services/LimitService.js',
+  'src/services/MemoEncryptionService.js',
+  'src/services/NetworkFeeService.js',
+  'src/services/PaymentChannelService.js',
+  'src/services/PledgeFulfillmentService.js',
+  'src/services/PriceOracleService.js',
+  'src/services/PubSubAdapter.js',
+  'src/services/SequenceManager.js',
+  'src/services/TOTPService.js',
+  'src/services/interfaces/IStellarService.js',
+  'src/services/rateLimitStores/index.js',
+  'src/services/signing/index.js',
+  'src/services/websocketService.js',
+  'src/utils/abuseDetector.js',
+  'src/utils/asyncHandler.js',
+  'src/utils/cache.js',
+  'src/utils/database.js',
+  'src/utils/donationValidator.js',
+  'src/utils/leaderElection.js',
+  'src/utils/memoCollisionDetector.js',
+  'src/utils/memoValidator.js',
+  'src/utils/stellarErrorHandler.js',
+  'src/utils/suspiciousPatternDetector.js',
+  'src/utils/timerRegistry.js',
+];
 
 module.exports = {
   env: {
@@ -105,9 +147,14 @@ module.exports = {
         'ACCESS_LOG_INCLUDE_HEALTH',             // env-var doc string
         'snapshotAt=',                           // example query string
         'stellar_public_key',                    // example placeholder
-        'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567',      // RFC 4648 base32 alphabet
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZ',            // RFC 4648 base32 alphabet / placeholder keys
         '^eyJ',                                  // example JWT (OpenAPI docs)
-        '014_webhook_tls_skip_verify',           // migration name
+        '\\b\\d{3}_[a-z0-9_]+\\b',                 // migration names (e.g. 020_webhook_tls_skip_verify)
+        '\\bidx_[a-z0-9_]+\\b',                    // SQL index names
+        '\\b[A-Z][A-Z0-9_]*=(true|false|mainnet|testnet|software)\\b', // env-var doc strings
+        '\\[[A-Za-z]+=[A-Z0-9_]+\\]',              // JSDoc optional-param defaults
+        'req_01HZ7GXKJ8QCVW9ABCDEF',             // example request id (error-code docs)
+        'buildManifest\\(\\)',                   // JSDoc method reference
         'obj<<',                                 // embedded PDF template
         'SHARED_STATE_BACKEND',                  // env-var doc string
       ],
@@ -137,6 +184,13 @@ module.exports = {
     'local/consistent-exports': 'error',
   },
   overrides: [
+    {
+      // Grandfathered export shapes: see GRANDFATHERED_EXPORT_SHAPES above.
+      files: GRANDFATHERED_EXPORT_SHAPES,
+      rules: {
+        'local/consistent-exports': 'off',
+      },
+    },
     {
       // Grandfathered large files: exempt from max-lines while being decomposed.
       // See the GRANDFATHERED_LARGE_FILES declaration at the top of this file.

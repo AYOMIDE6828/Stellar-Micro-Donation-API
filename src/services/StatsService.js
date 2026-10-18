@@ -382,6 +382,7 @@ class StatsService {
       // For non-XLM, convert fee to XLM stroops using stored rate
       const feeInXLMStroops = asset === 'XLM' ? feeStroops : BigInt(Math.floor(Number(feeStroops) * xlmRate));
       byAsset[asset]._totalFeesInXLMStroops += feeInXLMStroops;
+
     });
 
     const feesByAsset = Object.values(byAsset).map(a => {

@@ -10,7 +10,9 @@ const { withTimeout, TIMEOUT_DEFAULTS, TimeoutError } = require('../utils/timeou
 const { runWithAbortController, getCurrentAbortSignal } = require('../utils/abortContext');
 const { CircuitBreaker } = require('../utils/circuitBreaker');
 const HorizonPool = require('./HorizonPool');
-const { isSameAsset } = require('../utils/stellarAsset');
+const {
+  isSameAsset,
+} = require('../utils/stellarAsset');
 
 // Import decomposed modules
 const StellarAccounts = require('./stellar/accounts');
@@ -230,7 +232,7 @@ class StellarService extends StellarServiceInterface {
           delay,
           error: error.message
         });
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise(resolve => setTimeout(resolve, delay)); // eslint-disable-line local/no-bare-timers -- awaited delay; must not be cancelled by clearAll()
       }
     }
 

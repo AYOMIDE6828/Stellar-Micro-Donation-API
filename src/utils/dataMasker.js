@@ -155,6 +155,7 @@ function isXlmAmount(value) {
   if (typeof value === 'number') return true;
   if (typeof value === 'string') {
     const trimmed = value.trim();
+    // eslint-disable-next-line security/detect-unsafe-regex -- anchored; repeated groups are separated by a literal delimiter, so matching is linear
     return /^\d+(\.\d+)?(\s*XLM)?$/i.test(trimmed) && !isNaN(parseFloat(trimmed));
   }
   return false;

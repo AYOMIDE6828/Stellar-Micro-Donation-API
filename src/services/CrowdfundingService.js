@@ -445,7 +445,7 @@ async function checkAndReleaseMilestones(campaignId, currentAmount, options = {}
   }
 
   const StellarSdk = require('stellar-sdk');
-  // Fail fast on an invalid escrow secret before releasing any milestone.
+  // Fail fast on a malformed escrow secret before any milestone is processed.
   StellarSdk.Keypair.fromSecret(escrowSecret);
   const releasedMilestones = [];
 

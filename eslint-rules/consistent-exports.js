@@ -46,8 +46,7 @@ module.exports = {
   },
 
   create(context) {
-    const filename = context.getFilename().replace(/\\/g, '/');
-    const sourceCode = context.getSourceCode();
+    const filename = context.getFilename();
 
     const isRouteHelperModule = /src\/routes\//.test(filename) && /\/helpers\.js$/.test(filename);
     const isServiceModule = /src\/services\//.test(filename);

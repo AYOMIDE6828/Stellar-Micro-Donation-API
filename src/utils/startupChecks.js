@@ -391,7 +391,7 @@ async function checkStellarNetwork() {
     await Promise.race([
       stellarService.server.root(),
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`timed out after ${STELLAR_TIMEOUT_MS}ms`)), STELLAR_TIMEOUT_MS)
+        setTimeout(() => reject(new Error(`timed out after ${STELLAR_TIMEOUT_MS}ms`)), STELLAR_TIMEOUT_MS) // eslint-disable-line local/no-bare-timers -- awaited delay; must not be cancelled by clearAll()
       ),
     ]);
 

@@ -22,12 +22,62 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+      # Restore the ESLint cache so unchanged files are not re-linted. Refs #1789.
+      - uses: actions/cache@v4
+        with:
+          path: .eslintcache
+          key: eslint-${{ runner.os }}-${{ hashFiles('package-lock.json', '.eslintrc.js', 'eslint-rules/**') }}-${{ github.sha }}
+          restore-keys: |
+            eslint-${{ runner.os }}-${{ hashFiles('package-lock.json', '.eslintrc.js', 'eslint-rules/**') }}-
+      # Fails on any lint error, and on more warnings than the --max-warnings
+      # ratchet in package.json allows. Lower that number as warnings are fixed.
       - run: npm run lint
       - run: npm run config:check
       - run: npm run migrate:check
       # Reject PRs that embed invalid Stellar keys or wrong field names in
       # the example curl/Postman files. Refs issue #1428.
       - run: npm run examples:validate
+
+  # Repository guard scripts (conventions that ESLint cannot express). Refs #1790.
+  guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      # ADR-004: no float arithmetic on money. Fails on findings beyond the
+      # KNOWN_FLOAT_MONEY baseline in the script.
+      - run: npm run check:no-float-money
+      # docs/TEST_NAMING_CONVENTION.md: no new issue-numbered test files.
+      - run: npm run check:test-naming
+      # Suites must not leak env/global state or share fixtures across workers.
+      - run: npm run check:isolation
+      - run: npm run check:i18n-orphans
+      - run: npm run validate:rbac
+        env:
+          API_KEYS: ci_key
+          ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+      # Non-blocking until the JSDoc type errors on main are fixed; remove
+      # continue-on-error once `npm run typecheck` exits 0.
+      - run: npm run typecheck
+        continue-on-error: true
+
+  # Quarantined suites (tests/quarantine.js) run separately with retries and do
+  # not block merge. See docs/testing/FLAKY_TEST_POLICY.md. Refs #1787.
+  quarantine:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run test:quarantine -- --ci
 
   test:
     runs-on: ubuntu-latest
