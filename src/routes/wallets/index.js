@@ -1,9 +1,24 @@
 /**
- * Wallet Routes - Index Router
+ * Wallet Routes - Composition Layer
  *
- * RESPONSIBILITY: Core wallet CRUD operations (create, list, bulk import, funding)
+ * RESPONSIBILITY: Mount decomposed wallet sub-routers (issue #1212)
  * OWNER: Backend Team
- * DEPENDENCIES: WalletService, middleware (auth, RBAC)
+ * DEPENDENCIES: Wallet sub-routers in this directory
+ *
+ * This file now serves as a thin composition layer that mounts focused
+ * sub-routers, each handling specific wallet operations:
+ * - crud.js: CRUD + bulk operations
+ * - metadata.js: Wallet metadata (get, update, delete)
+ * - balance-history.js: Balance and transaction history
+ * - home-domain.js: Home domain management
+ * - inflation.js: Inflation destination
+ * - sponsorship.js: Account sponsorship
+ * - trustlines.js: Trustline management
+ * - data-entries.js: Account data
+ * - merge.js: Account merging
+ * - limits-config.js: Wallet limits and config
+ *
+ * See docs/WALLET_ROUTES_COMPOSITION.md for architecture details.
  */
 
 const express = require('express');
@@ -23,7 +38,6 @@ const Database = require('../../utils/database');
 const Wallet = require('../../models/wallet');
 const WalletService = require('../../services/WalletService');
 const AuditLogService = require('../../services/AuditLogService');
-const log = require('../../utils/log');
 const requireApiKey = require('../../middleware/apiKey');
 const { getStellarService } = require('../../config/stellar');
 const { walletCreateSchema, walletIdSchema } = require('./helpers');
@@ -359,102 +373,6 @@ router.post(
         });
       }
 
-      let rows;
-      try {
-        rows = parseCsvSync(req.file.buffer, {
-          columns: true,
-          skip_empty_lines: true,
-          trim: true,
-        });
-      } catch (parseErr) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'PARSE_ERROR', message: `CSV parse error: ${parseErr.message}` },
-        });
-      }
-
-      if (rows.length === 0) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'EMPTY_FILE', message: 'CSV file contains no data rows' },
-        });
-      }
-
-      const maxRows = getBulkMaxRows();
-      if (rows.length > maxRows) {
-        return res.status(422).json({
-          success: false,
-          error: {
-            code: 'ROW_LIMIT_EXCEEDED',
-            message: `File contains ${rows.length} rows which exceeds the maximum of ${maxRows}.`,
-            details: { submitted: rows.length, limit: maxRows },
-          },
-        });
-      }
-
-      if (!Object.prototype.hasOwnProperty.call(rows[0], 'address')) {
-        return res.status(400).json({
-          success: false,
-          error: {
-            code: 'INVALID_HEADER',
-            message: 'CSV must have a header row with at least an "address" column',
-          },
-        });
-      }
-
-      let imported = 0;
-      let skipped = 0;
-      let failed = 0;
-      const errors = [];
-
-      const StellarSdk = require('stellar-sdk');
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const rowNum = i + 2;
-        const address = (row.address || '').trim();
-
-        if (!address) {
-          failed++;
-          errors.push({ row: rowNum, address: '', reason: 'Missing address' });
-          continue;
-        }
-
-        if (!StellarSdk.StrKey.isValidEd25519PublicKey(address)) {
-          failed++;
-          errors.push({ row: rowNum, address, reason: 'Invalid Stellar public key' });
-          continue;
-        }
-
-        const existing = Wallet.getByAddress(address);
-        if (existing) {
-          skipped++;
-          continue;
-        }
-
-        try {
-          Wallet.create({
-            address,
-            label: row.label || null,
-            ownerName: row.ownerName || null,
-          });
-          imported++;
-        } catch (createErr) {
-          failed++;
-          errors.push({ row: rowNum, address, reason: createErr.message });
-        }
-      }
-
-      return res.status(200).json({
-        success: true,
-        data: { imported, skipped, failed, errors },
-      });
-    } catch (error) {
-      next(error);
-    }
-  })
-);
-
-// ─── POST /wallets/:id/fund ──────────────────────────────────────────────
 /**
  * @openapi
  * /wallets/{id}/fund:
@@ -548,24 +466,41 @@ router.post(
             });
           }
         }
-      } catch (err) {
-        // Account not found, safe to fund
       }
-
-      const result = await stellarService.fundAccountWithFriendbot(wallet.publicKey);
-      return res.json({
-        success: true,
-        data: {
-          walletId: wallet.id,
-          publicKey: wallet.publicKey,
-          funded: true,
-          transactionHash: result.hash
-        }
-      });
-    } catch (error) {
-      next(error);
     }
-  })
-);
+    return originalJson(body);
+  };
+  next();
+}
+
+// Apply response sanitizer middleware to all wallet endpoints
+router.use(walletResponseSanitizer);
+
+// Mount decomposed sub-routers
+const crudRouter = require('./crud');
+const metadataRouter = require('./metadata');
+const balanceHistoryRouter = require('./balance-history');
+const homeDomainRouter = require('./home-domain');
+const inflationRouter = require('./inflation');
+const sponsorshipRouter = require('./sponsorship');
+const trustlinesRouter = require('./trustlines');
+const dataEntriesRouter = require('./data-entries');
+const mergeRouter = require('./merge');
+const limitsConfigRouter = require('./limits-config');
+
+// Mount all routes (sub-routers handle their own paths)
+router.use('/', crudRouter);
+router.use('/', metadataRouter);
+router.use('/', balanceHistoryRouter);
+router.use('/', homeDomainRouter);
+router.use('/', inflationRouter);
+router.use('/', sponsorshipRouter);
+router.use('/', trustlinesRouter);
+router.use('/', dataEntriesRouter);
+router.use('/', mergeRouter);
+router.use('/', limitsConfigRouter);
 
 module.exports = router;
+module.exports.ALLOWED_WALLET_FIELDS = ALLOWED_WALLET_FIELDS;
+module.exports.walletResponseSanitizer = walletResponseSanitizer;
+

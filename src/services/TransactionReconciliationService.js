@@ -14,7 +14,6 @@
  *  4. Emits alerts when the orphan count exceeds a configurable threshold.
  */
 
-const Database = require('../utils/database');
 const Transaction = require('../models/transaction');
 const { TRANSACTION_STATES } = require('../utils/transactionStateMachine');
 const log = require('../utils/log');

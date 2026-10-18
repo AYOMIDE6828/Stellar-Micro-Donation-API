@@ -109,7 +109,7 @@ function correlationHook(req) {
       if (ctx && ctx.correlationId) {
         req.id = ctx.correlationId;
       }
-    } catch (_) {}
+    } catch (_) { /* best-effort */ }
   }
 }
 

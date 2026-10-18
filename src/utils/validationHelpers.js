@@ -19,6 +19,7 @@ const STROOPS_PER_XLM = 10000000n;
 
 // Strict decimal string: optional leading zeros, integer part, optional
 // fractional part with at most 7 digits. No signs, exponents, or whitespace.
+// eslint-disable-next-line security/detect-unsafe-regex -- anchored; repeated groups are separated by a literal delimiter, so matching is linear
 const AMOUNT_REGEX = /^(?:0|[1-9]\d*)(?:\.\d{1,7})?$/;
 
 /**

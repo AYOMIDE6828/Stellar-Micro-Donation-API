@@ -26,6 +26,7 @@
 
 require('dotenv').config();
 
+const crypto = require('crypto');
 const Database = require('../utils/database');
 const { getCacheTtlMs: getRotationLockCacheTtlMs } = require('../middleware/rotationLock');
 

@@ -32,6 +32,14 @@ function getDb() {
   }
 }
 
+function getMetrics() {
+  try {
+    return require('./metrics');
+  } catch (_) {
+    return null;
+  }
+}
+
 class LeaderElection {
   constructor(options = {}) {
     this.instanceId = options.instanceId ||

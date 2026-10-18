@@ -12,6 +12,7 @@
 'use strict';
 
 process.env.MOCK_STELLAR = 'true';
+const ORIGINAL_API_KEYS = process.env.API_KEYS;
 process.env.API_KEYS = 'test-key-escrow';
 process.env.NODE_ENV = 'test';
 
@@ -162,4 +163,11 @@ describe('Issue #1771 — EscrowContract in-memory simulation', () => {
 
     expect(() => contract.release('recipient2')).toThrow();
   });
+});
+
+// Restore the module-scope env override so later suites in this worker see
+// the value tests/setup.js established.
+afterAll(() => {
+  if (ORIGINAL_API_KEYS === undefined) delete process.env.API_KEYS;
+  else process.env.API_KEYS = ORIGINAL_API_KEYS;
 });

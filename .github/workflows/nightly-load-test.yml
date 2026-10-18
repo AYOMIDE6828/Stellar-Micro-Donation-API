@@ -99,16 +99,9 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const data = JSON.parse(fs.readFileSync('reports/load/regressions.json', 'utf8'));
 
-            const metricsTable = [
-              '| Scenario | Metric | Baseline | Actual | Over threshold |',
-              '|---|---|---|---|---|',
-              ...data.regressions.map(r =>
-                `| ${r.scenario} | ${r.metric} | ${r.baseline}ms | ${r.actual}ms | +${r.pctOver}% |`
-              ),
-            ].join('\n');
-
+            const LABEL = 'perf-regression';
+            const TITLE_PREFIX = 'Performance regression: ';
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = [
               `Nightly load test detected ${data.regressions.length} scenario(s) exceeding their SLA target's p95 latency by more than ${data.thresholdPct}% (issue #1546).`,
@@ -149,6 +142,33 @@ jobs:
                 body,
                 labels: ['performance', 'regression', 'automated'],
               });
+            }
+
+            for (const issue of openIssues) {
+              if (issue.pull_request) continue;
+              if (!issue.title.startsWith(TITLE_PREFIX)) continue;
+              const scenario = issue.title.slice(TITLE_PREFIX.length).trim();
+              if (regressedScenarios.has(scenario)) continue;
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: [
+                  `\`${scenario}\` is back within its SLA p95 latency target — closing this tracking issue.`,
+                  '',
+                  `Checked at: ${data.checkedAt}`,
+                  `Workflow run: ${runUrl}`,
+                ].join('\n'),
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+                state_reason: 'completed',
+              });
+              core.info(`Closed recovered tracking issue #${issue.number} for ${scenario}`);
             }
 
       - name: Upload load test report

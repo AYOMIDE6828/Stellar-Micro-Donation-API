@@ -801,7 +801,7 @@ router.post('/:id/tags', requireApiKey, checkPermission(PERMISSIONS.DONATIONS_UP
   try {
     const TagService = require('../../services/TagService');
     await TagService.associateTags(tx.id, tags);
-  } catch (_) {}
+  } catch (_) { /* best-effort */ }
 
   return res.json({ success: true, data: { tags: updated } });
 }));
@@ -853,7 +853,7 @@ router.delete('/:id/tags/:tag', requireApiKey, checkPermission(PERMISSIONS.DONAT
   try {
     const TagService = require('../../services/TagService');
     await TagService.removeTagFromDonation(tx.id, tag);
-  } catch (_) {}
+  } catch (_) { /* best-effort */ }
 
   return res.json({ success: true, data: { tags: updated } });
 }));

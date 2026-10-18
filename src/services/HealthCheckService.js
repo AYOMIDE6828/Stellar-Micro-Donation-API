@@ -252,6 +252,8 @@ async function getFullHealth(stellarService, networkStatusService, scheduler, ve
 /**
  * Liveness check — confirms the process is alive.
  * Never checks external dependencies; always returns healthy.
+ * Must stay synchronous and dependency-free so that a liveness probe
+ * cannot fail (and trigger a container restart) during a dependency outage.
  *
  * @returns {{status: string, timestamp: string}}
  */

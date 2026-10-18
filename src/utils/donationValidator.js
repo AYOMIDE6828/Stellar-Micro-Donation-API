@@ -56,6 +56,7 @@ function toStroops(amount) {
   }
 
   // Strict decimal format: optional sign, digits, optional fraction.
+  // eslint-disable-next-line security/detect-unsafe-regex -- anchored; repeated groups are separated by a literal delimiter, so matching is linear
   if (!/^[+-]?\d+(\.\d+)?$/.test(str)) return null;
 
   const negative = str.startsWith('-');

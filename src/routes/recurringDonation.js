@@ -21,7 +21,6 @@ const { PERMISSIONS } = require('../utils/permissions');
 const { VALID_FREQUENCIES, SCHEDULE_STATUS, DONATION_FREQUENCIES } = require('../constants');
 const {
   validateRequiredFields,
-  validateFloat,
   validateXLMAmount,
   validateEnum,
   validateInteger,

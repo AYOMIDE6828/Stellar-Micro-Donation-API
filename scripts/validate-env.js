@@ -40,10 +40,6 @@ function isPositiveInt(v) { return /^\d+$/.test(v) && parseInt(v, 10) > 0; }
 function isPositiveNumber(v) { return !isNaN(parseFloat(v)) && parseFloat(v) > 0; }
 function isNonNegativeNumber(v) { return !isNaN(parseFloat(v)) && parseFloat(v) >= 0; }
 
-function isValidUrl(v) {
-  try { new URL(v); return true; } catch { return false; }
-}
-
 // ── Required variables ────────────────────────────────────────────────────
 
 function checkRequired(name, validator, hint) {
