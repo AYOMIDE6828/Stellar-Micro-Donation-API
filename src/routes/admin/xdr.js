@@ -64,7 +64,7 @@
 
 const express = require('express');
 const router = express.Router();
-const StellarSdk = require('stellar-sdk');
+const StellarSdk = require('../../services/stellar/sdk.js');
 const { verifyAdmin } = require('../../middleware/auth');
 const asyncHandler = require('../../utils/asyncHandler');
 const { ValidationError } = require('../../utils/errors');

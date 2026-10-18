@@ -64,7 +64,7 @@ router.post(
       }
 
       // Validate Stellar public key format using the Stellar SDK
-      const StellarSdk = require('stellar-sdk');
+      const StellarSdk = require('../../services/stellar/sdk.js');
       if (!StellarSdk.StrKey.isValidEd25519PublicKey(address)) {
         const { formatError } = require('../../utils/errors');
         return res.status(400).json(formatError('INVALID_PUBLIC_KEY', 'Invalid Stellar public key format', req.id));
@@ -235,7 +235,7 @@ router.post(
       let failed = 0;
       const errors = [];
 
-      const StellarSdk = require('stellar-sdk');
+      const StellarSdk = require('../../services/stellar/sdk.js');
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         const rowNum = i + 2;

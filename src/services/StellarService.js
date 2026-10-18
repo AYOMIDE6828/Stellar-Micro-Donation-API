@@ -1,6 +1,6 @@
 
 // External modules
-const StellarSdk = require('stellar-sdk');
+const StellarSdk = require('./stellar/sdk.js');
 
 // Internal modules
 const StellarServiceInterface = require('./interfaces/StellarServiceInterface');

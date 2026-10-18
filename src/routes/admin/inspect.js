@@ -1,5 +1,5 @@
 const express = require('express');
-const StellarSdk = require('stellar-sdk');
+const StellarSdk = require('../../services/stellar/sdk.js');
 const Transaction = require('../../models/transaction');
 const { requireAdmin } = require('../../middleware/rbac');
 const { ValidationError, NotFoundError} = require('../../utils/errors');

@@ -10,7 +10,7 @@
 'use strict';
 
 const express = require('express');
-const StellarSdk = require('stellar-sdk');
+const StellarSdk = require('../services/stellar/sdk.js');
 const asyncHandler = require('../utils/asyncHandler');
 const log = require('../utils/log');
 const requireApiKey = require('../middleware/apiKey');

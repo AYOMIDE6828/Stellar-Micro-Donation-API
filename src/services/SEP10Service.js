@@ -11,7 +11,7 @@
  */
 
 const crypto = require('crypto');
-const StellarSdk = require('stellar-sdk');
+const StellarSdk = require('./stellar/sdk.js');
 const { issueAccessToken } = require('./JwtService');
 const log = require('../utils/log');
 const { ValidationError, ERROR_CODES } = require('../utils/errors');
