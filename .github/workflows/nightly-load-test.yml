@@ -53,42 +53,148 @@ jobs:
         id: regression_check
         run: node scripts/check-load-test-regression.js reports/load/load-test-report.json
 
-      - name: File a GitHub issue for detected regressions
-        if: steps.regression_check.outputs.has_regressions == 'true'
+      - name: Report regressions (idempotent — comment on / close tracking issues)
+        if: always()
         uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
-            const data = JSON.parse(fs.readFileSync('reports/load/regressions.json', 'utf8'));
 
-            const metricsTable = [
-              '| Scenario | Metric | Baseline | Actual | Over threshold |',
-              '|---|---|---|---|---|',
-              ...data.regressions.map(r =>
-                `| ${r.scenario} | ${r.metric} | ${r.baseline}ms | ${r.actual}ms | +${r.pctOver}% |`
-              ),
-            ].join('\n');
-
+            const LABEL = 'perf-regression';
+            const TITLE_PREFIX = 'Performance regression: ';
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = [
-              `Nightly load test detected ${data.regressions.length} scenario(s) exceeding their SLA target's p95 latency by more than ${data.thresholdPct}% (issue #1546).`,
-              '',
-              '### Comparison metrics',
-              metricsTable,
-              '',
-              `Checked at: ${data.checkedAt}`,
-              `Workflow run: ${runUrl}`,
-              '',
-              'Targets are defined in `tests/load/PerformanceBaselines.js` (`NIGHTLY_TARGET_BASELINES`). See `docs/LOAD_TESTING.md` for how to reproduce locally with `npm run test:load`.',
-            ].join('\n');
 
-            await github.rest.issues.create({
+            // Ensure the tracking label exists (create is idempotent-ish: 422 if present).
+            try {
+              await github.rest.issues.getLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: LABEL,
+              });
+            } catch (err) {
+              if (err.status === 404) {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: LABEL,
+                  color: 'd93f0b',
+                  description: 'Automated nightly load-test performance regression tracking',
+                });
+              } else {
+                throw err;
+              }
+            }
+
+            // Find the single open tracking issue for a scenario, if any.
+            async function findOpenTrackingIssue(scenario) {
+              const { data } = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                labels: LABEL,
+                per_page: 100,
+              });
+              const prefix = `${TITLE_PREFIX}${scenario}`;
+              // Match exact scenario name (avoid "list-donations" matching "list-donations-v2").
+              return data.find(
+                (issue) => !issue.pull_request && (issue.title === prefix || issue.title.startsWith(`${prefix} `))
+              );
+            }
+
+            function metricsTable(regressions) {
+              return [
+                '| Scenario | Metric | Baseline | Actual | Over threshold |',
+                '|---|---|---|---|---|',
+                ...regressions.map(r =>
+                  `| ${r.scenario} | ${r.metric} | ${r.baseline}ms | ${r.actual}ms | +${r.pctOver}% |`
+                ),
+              ].join('\n');
+            }
+
+            let data;
+            try {
+              data = JSON.parse(fs.readFileSync('reports/load/regressions.json', 'utf8'));
+            } catch (err) {
+              core.warning(`Could not read regressions.json: ${err.message}`);
+              return;
+            }
+
+            const regressions = data.regressions || [];
+            const regressedScenarios = new Set(regressions.map(r => r.scenario));
+
+            // 1. Comment on (or open) a tracking issue per regressed scenario.
+            for (const scenario of regressedScenarios) {
+              const scenarioRegressions = regressions.filter(r => r.scenario === scenario);
+              const body = [
+                `Nightly load test detected ${scenarioRegressions.length} metric(s) for \`${scenario}\` exceeding the SLA target's p95 latency by more than ${data.thresholdPct}% (issue #1546).`,
+                '',
+                '### Comparison metrics',
+                metricsTable(scenarioRegressions),
+                '',
+                `Checked at: ${data.checkedAt}`,
+                `Workflow run: ${runUrl}`,
+                '',
+                'Targets are defined in `tests/load/PerformanceBaselines.js` (`NIGHTLY_TARGET_BASELINES`). See `docs/LOAD_TESTING.md` for how to reproduce locally with `npm run test:load`.',
+              ].join('\n');
+
+              const existing = await findOpenTrackingIssue(scenario);
+              if (existing) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: existing.number,
+                  body,
+                });
+                core.info(`Commented on existing tracking issue #${existing.number} for ${scenario}`);
+              } else {
+                const { data: created } = await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: `${TITLE_PREFIX}${scenario}`,
+                  body,
+                  labels: [LABEL, 'performance', 'regression', 'automated'],
+                });
+                core.info(`Opened tracking issue #${created.number} for ${scenario}`);
+              }
+            }
+
+            // 2. Auto-close tracking issues for scenarios that have recovered.
+            //    Enumerate all open tracking issues so recovered scenarios are found
+            //    even when they no longer appear in regressions.json.
+            const { data: openIssues } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `Performance regression detected — nightly load test (${new Date().toISOString().slice(0, 10)})`,
-              body,
-              labels: ['performance', 'regression', 'automated'],
+              state: 'open',
+              labels: LABEL,
+              per_page: 100,
             });
+
+            for (const issue of openIssues) {
+              if (issue.pull_request) continue;
+              if (!issue.title.startsWith(TITLE_PREFIX)) continue;
+              const scenario = issue.title.slice(TITLE_PREFIX.length).trim();
+              if (regressedScenarios.has(scenario)) continue;
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: [
+                  `\`${scenario}\` is back within its SLA p95 latency target — closing this tracking issue.`,
+                  '',
+                  `Checked at: ${data.checkedAt}`,
+                  `Workflow run: ${runUrl}`,
+                ].join('\n'),
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+                state_reason: 'completed',
+              });
+              core.info(`Closed recovered tracking issue #${issue.number} for ${scenario}`);
+            }
 
       - name: Upload load test report
         if: always()
