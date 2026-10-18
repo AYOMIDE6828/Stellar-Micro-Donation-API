@@ -323,9 +323,14 @@ function mountRoutes(app, services = {}) {
     }
   });
 
+  // Full dependency health check — for humans and monitoring dashboards.
+  // Rate-limited to protect the (expensive) dependency checks.
   app.get('/api/v1/health', healthCheckRateLimiter, healthHandler);
   app.get('/health', healthCheckRateLimiter, healthHandler);
 
+  // Liveness probe — process-only, no dependency checks, never rate-limited.
+  // Used by container HEALTHCHECK and Kubernetes liveness probes so that a
+  // dependency outage cannot cause healthy containers to be restarted.
   const liveHandler = (req, res) => res.status(200).json(HealthCheckService.getLiveness());
 
   const readyHandler = asyncHandler(async (req, res) => {
@@ -365,6 +370,8 @@ function mountRoutes(app, services = {}) {
     }
   });
 
+  // Probe endpoints are intentionally NOT wrapped in healthCheckRateLimiter:
+  // a rate-limited probe would report a healthy container as failing.
   app.get('/health/live', liveHandler);
   app.get('/api/v1/health/live', liveHandler);
 

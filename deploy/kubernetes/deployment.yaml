@@ -56,6 +56,9 @@ spec:
             limits:
               cpu: "1"
               memory: 1Gi
+          # Probe endpoints are exempt from rate limiting (see
+          # src/bootstrap/routes.js). Use /health/live for liveness and
+          # /health/ready for readiness; keep /health for humans/monitoring.
           readinessProbe:
             httpGet:
               path: /health/ready
@@ -64,6 +67,9 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
+          # Liveness must not depend on external services: /health/live only
+          # checks the process, so a dependency outage cannot restart healthy
+          # containers and turn a partial outage into a full one.
           livenessProbe:
             httpGet:
               path: /health/live
