@@ -15,6 +15,7 @@
 const Database = require('./database');
 const fs = require('fs');
 const path = require('path');
+const { isValidStellarSecretKey } = require('./validators');
 
 const STELLAR_TIMEOUT_MS = 5000;
 
@@ -473,7 +474,6 @@ const STELLAR_SIGNING_KEY_VARS = [
 
 /** Check — presence/validity of Stellar signing keys (#1234) */
 function checkStellarSigningKeys() {
-  const { isValidStellarSecretKey } = require('./validators');
   const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
   const isMock = process.env.MOCK_STELLAR === 'true' || process.env.USE_MOCK_STELLAR === 'true';
   let allOk = true;
