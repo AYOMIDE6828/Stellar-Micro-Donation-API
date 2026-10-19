@@ -40,6 +40,27 @@ function getMetrics() {
   }
 }
 
+/**
+ * Record a scheduler-lock metric. Metrics are observability only, so any failure
+ * here is logged and swallowed; it must never change the lease result.
+ *
+ * @param {string} method - Name of the metrics recorder on the metrics module
+ * @param {...*} args     - Arguments forwarded to the recorder
+ */
+function recordLockMetric(method, ...args) {
+  try {
+    const metrics = getMetrics();
+    if (metrics && typeof metrics[method] === 'function') {
+      metrics[method](...args);
+    }
+  } catch (err) {
+    log.warn('LEADER_ELECTION', 'Failed to record scheduler lock metric', {
+      method,
+      error: err.message,
+    });
+  }
+}
+
 class LeaderElection {
   constructor(options = {}) {
     this.instanceId = options.instanceId ||
@@ -89,15 +110,10 @@ class LeaderElection {
 
       const isLeader = Boolean(row && row.holder_id === this.instanceId);
 
-      const metrics = getMetrics();
       if (isLeader) {
-        if (metrics && typeof metrics.recordSchedulerLockAcquisition === 'function') {
-          metrics.recordSchedulerLockAcquisition('acquired');
-        }
+        recordLockMetric('recordSchedulerLockAcquisition', 'acquired');
       } else {
-        if (metrics && typeof metrics.recordSchedulerLockAcquisition === 'function') {
-          metrics.recordSchedulerLockAcquisition('contested');
-        }
+        recordLockMetric('recordSchedulerLockAcquisition', 'contested');
         log.info('LEADER_ELECTION', 'Instance is in standby — skipping tick', {
           job: name,
           holder: row && row.holder_id,
@@ -107,10 +123,7 @@ class LeaderElection {
 
       return isLeader;
     } catch (err) {
-      const metrics = getMetrics();
-      if (metrics && typeof metrics.recordSchedulerLockAcquisition === 'function') {
-        metrics.recordSchedulerLockAcquisition('failed');
-      }
+      recordLockMetric('recordSchedulerLockAcquisition', 'failed');
       log.warn('LEADER_ELECTION', 'acquireLease error — failing open', {
         job: name,
         error: err.message,
@@ -134,10 +147,7 @@ class LeaderElection {
         'DELETE FROM scheduler_locks WHERE name = ? AND holder_id = ?',
         [name, this.instanceId]
       );
-      const metrics = getMetrics();
-      if (metrics && typeof metrics.recordSchedulerLockRelease === 'function') {
-        metrics.recordSchedulerLockRelease();
-      }
+      recordLockMetric('recordSchedulerLockRelease');
     } catch (_) { /* non-critical */ }
   }
 }
