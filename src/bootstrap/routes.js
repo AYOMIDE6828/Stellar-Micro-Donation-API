@@ -86,7 +86,6 @@ const ADMIN_ROUTES = [
   ['/admin/circuit-breaker',          require('../routes/admin/circuitBreaker')],
   ['/admin/corporate-matching',       require('../routes/corporateMatching').adminRouter],
   ['/admin/encryption',               require('../routes/admin/encryption')],
-  ['/admin/geo-blocking',             require('../routes/admin/geoBlocking')],
   ['/admin/impact-metrics',           require('../routes/admin/impactMetrics')],
   ['/admin/sdg-mapping',              require('../routes/admin/impactMetrics')],
   ['/admin/matching-programs',        require('../routes/admin/matchingPrograms')],

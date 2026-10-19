@@ -110,7 +110,7 @@ describe('Chaos Testing Suite', () => {
         ];
         return Promise.reject(errors[Math.floor(Math.random() * errors.length)]);
       }
-      return originalDbQuery(...args);
+      return originalDbQuery.apply(Database, args);
     });
   }
 
@@ -213,9 +213,10 @@ describe('Chaos Testing Suite', () => {
           // swallowed by a fallback path.
           expect(error).toBeInstanceOf(DatabaseError);
 
-          // Verify database is still accessible after failure
+          // Verify database is still accessible after failure. The probe bypasses
+          // the injector so only a genuinely broken database counts as a crash.
           try {
-            await Database.query('SELECT 1');
+            await originalDbQuery.apply(Database, ['SELECT 1']);
           } catch (crashError) {
             expect(crashError).toBeInstanceOf(DatabaseError);
             chaosResults.crashes++;
