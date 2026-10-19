@@ -579,6 +579,14 @@ class MockStellarService extends StellarServiceInterface {
   // === Delegate to modules ===
   // Accounts module methods
   async createWallet() { return this.accounts.createWallet(); }
+  getSecretForPublicKey(publicKey) {
+    for (const wallet of this.wallets.values()) {
+      if (wallet.publicKey === publicKey) {
+        return wallet.secretKey;
+      }
+    }
+    return null;
+  }
   async getBalance(publicKey) { return this.accounts.getBalance(publicKey); }
   async fundTestnetWallet(publicKey) { return this.accounts.fundTestnetWallet(publicKey); }
   async fundWithFriendbot(publicKey) { return this.accounts.fundWithFriendbot(publicKey); }
