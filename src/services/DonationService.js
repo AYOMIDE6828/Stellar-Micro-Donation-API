@@ -1971,6 +1971,15 @@ class DonationService {
   }
 
   /**
+   * Get one bounded page of donations without loading the full set.
+   * @param {{ limit: number, offset: number }} page - Already-clamped page bounds.
+   * @returns {Array} Array of transactions
+   */
+  getDonationsPage(page) {
+    return Transaction.getPage(page);
+  }
+
+  /**
    * Apply search/filter criteria to a list of transactions.
    * All parameters are optional and combinable.
    *
