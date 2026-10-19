@@ -2363,7 +2363,7 @@ class DonationService {
   }
 
   async refundDonation(donationId, { reason, notes, idempotencyKey, recipientSecret, requestId }) {
-    const StellarSdk = require('stellar-sdk');
+    const StellarSdk = require('./stellar/sdk.js');
     const { BusinessLogicError, DuplicateError, ValidationError } = require('../utils/errors');
     const AuditLogService = require('./AuditLogService');
     const WebhookService = require('./WebhookService');

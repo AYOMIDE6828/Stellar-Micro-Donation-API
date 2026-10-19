@@ -7,7 +7,7 @@
  * @module MultiSigService
  */
 
-const StellarSdk = require('stellar-sdk');
+const StellarSdk = require('./stellar/sdk.js');
 const Database = require('../utils/database');
 const log = require('../utils/log');
 const { ValidationError, NotFoundError, BusinessLogicError, ERROR_CODES } = require('../utils/errors');

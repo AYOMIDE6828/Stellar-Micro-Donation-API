@@ -78,7 +78,7 @@ For detailed architecture documentation, see:
 
 ### Prerequisites
 
-- Node.js (v20 or higher)
+- Node.js 24 (or Node.js 22+)
 - npm or yarn
 - SQLite3
 

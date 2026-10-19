@@ -20,7 +20,7 @@
  * All tests use only in-process mocks — no live Stellar network calls, no real DB.
  */
 
-const StellarSdk = require('stellar-sdk');
+const StellarSdk = require('@stellar/stellar-sdk');
 const SEP10Service = require('../../src/services/SEP10Service');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
