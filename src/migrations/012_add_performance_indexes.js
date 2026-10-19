@@ -76,6 +76,13 @@ exports.down = async (db) => {
 exports.name = '045_add_list_donations_indexes';
 
 exports.up = async (db) => {
+  // donations_store is created by a later migration (033). On a fresh database
+  // it does not exist yet, so skip these indexes; 033 is the table's owner.
+  const table = await db.get(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'donations_store'"
+  );
+  if (!table) return;
+
   await db.run(`
     CREATE INDEX IF NOT EXISTS idx_donations_store_status_created_id
     ON donations_store(status, created_at DESC, id DESC)
