@@ -16,6 +16,7 @@ const Database = require('./database');
 const fs = require('fs');
 const path = require('path');
 const { isValidStellarSecretKey } = require('./validators');
+const { findMissingSigningSecrets, isStrictEnvironment } = require('./signingSecrets');
 
 const STELLAR_TIMEOUT_MS = 5000;
 
@@ -53,6 +54,24 @@ function warn(name, detail) {
 function fail(name, detail) {
   results.push({ name, status: 'fail', detail });
   print('error', `  ✖ ${name}${detail ? ': ' + detail : ''}`);
+}
+
+/**
+ * Signing secrets must be configured explicitly in production and staging (#1872).
+ * Development and test fall back to a random per-process secret, so this only fails
+ * when a strict environment would otherwise start with no export signing key.
+ * @returns {boolean} True when every required signing secret is present
+ */
+function checkSigningSecrets() {
+  const missing = findMissingSigningSecrets([
+    { name: 'EXPORT_SIGNING_SECRET', envVarNames: ['EXPORT_SIGNING_SECRET', 'ENCRYPTION_SECRET'] },
+  ]);
+  if (!isStrictEnvironment() || missing.length === 0) {
+    pass('Signing secrets', 'all configured');
+    return true;
+  }
+  fail('Signing secrets', `required in ${process.env.NODE_ENV}: ${missing.join(', ')}`);
+  return false;
 }
 
 /** Patterns that indicate a placeholder / example ENCRYPTION_KEY */
@@ -825,6 +844,7 @@ async function run({ exitOnFailure = false } = {}) {
   const criticalResults = [
     corsOk,
     checkEncryptionKey(),
+    checkSigningSecrets(),      // #1872
     checkApiKeys(),
     checkSecretStrength(),      // #1117
     checkUnsafeFlags(),         // #1116

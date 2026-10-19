@@ -16,6 +16,7 @@ const crypto = require('crypto');
 const db = require('../utils/database');
 const { securityConfig } = require('../config/securityConfig');
 const log = require('../utils/log');
+const { getSigningSecret } = require('../utils/signingSecrets');
 
 const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;       // 15 minutes
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -81,11 +82,11 @@ async function initializeRefreshTokensTable() {
 
 /**
  * Returns the HMAC secret used to sign access tokens.
- * Falls back to a deterministic dev secret when ENCRYPTION_KEY is absent.
+ * Throws in production/staging when ENCRYPTION_KEY is absent; elsewhere uses a random per-process secret.
  * @returns {string}
  */
 function getTokenSecret() {
-  return securityConfig.ENCRYPTION_KEY || 'dev_jwt_secret_change_in_production';
+  return securityConfig.ENCRYPTION_KEY || getSigningSecret('ENCRYPTION_KEY', ['ENCRYPTION_KEY']);
 }
 
 /**

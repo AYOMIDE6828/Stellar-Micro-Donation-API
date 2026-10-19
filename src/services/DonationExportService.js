@@ -14,6 +14,7 @@ const crypto = require('crypto');
 const fs = require('fs').promises;
 const path = require('path');
 const Database = require('../utils/database');
+const { getSigningSecret } = require('../utils/signingSecrets');
 const log = require('../utils/log');
 const timerRegistry = require('../utils/timerRegistry');
 const { ValidationError, NotFoundError } = require('../utils/errors');
@@ -462,7 +463,7 @@ class DonationExportService {
    * @returns {string} Signed URL
    */
   static generateSignedUrl(jobId, expiresAt) {
-    const secret = process.env.EXPORT_SIGNING_SECRET || 'export-signing-secret';
+    const secret = getSigningSecret('EXPORT_SIGNING_SECRET', ['EXPORT_SIGNING_SECRET', 'ENCRYPTION_SECRET']);
     const signature = crypto
       .createHmac('sha256', secret)
       .update(`${jobId}:${expiresAt}`)
@@ -484,7 +485,7 @@ class DonationExportService {
     if (new Date(expiresAt).getTime() < Date.now()) {
       return false;
     }
-    const secret = process.env.EXPORT_SIGNING_SECRET || 'export-signing-secret';
+    const secret = getSigningSecret('EXPORT_SIGNING_SECRET', ['EXPORT_SIGNING_SECRET', 'ENCRYPTION_SECRET']);
     const expected = crypto
       .createHmac('sha256', secret)
       .update(`${jobId}:${expiresAt}`)
