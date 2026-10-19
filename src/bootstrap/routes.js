@@ -10,6 +10,7 @@
 'use strict';
 
 const express = require('express');
+const { clientErrorMessage } = require('../utils/clientErrorMessage');
 const asyncHandler = require('../utils/asyncHandler');
 const log = require('../utils/log');
 const requireApiKey = require('../middleware/apiKey');
@@ -280,7 +281,7 @@ function mountRoutes(app, services = {}) {
       log.error('APP', 'Failed to fetch exchange rates', { error: err.message });
       res.status(503).json({
         success: false,
-        error: { code: 'EXCHANGE_RATE_UNAVAILABLE', message: err.message },
+        error: { code: 'EXCHANGE_RATE_UNAVAILABLE', message: clientErrorMessage('EXCHANGE_RATES', err, 503) },
       });
     }
   }));
