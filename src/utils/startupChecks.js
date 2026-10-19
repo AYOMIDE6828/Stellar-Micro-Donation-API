@@ -59,12 +59,13 @@ function fail(name, detail) {
 /**
  * Signing secrets must be configured explicitly in production and staging (#1872).
  * Development and test fall back to a random per-process secret, so this only fails
- * when a strict environment would otherwise start with no export signing key.
+ * when a strict environment would otherwise start with a missing signing secret.
  * @returns {boolean} True when every required signing secret is present
  */
 function checkSigningSecrets() {
   const missing = findMissingSigningSecrets([
     { name: 'EXPORT_SIGNING_SECRET', envVarNames: ['EXPORT_SIGNING_SECRET', 'ENCRYPTION_SECRET'] },
+    { name: 'JWT_SIGNING_SECRET', envVarNames: ['JWT_SIGNING_SECRET'] },
   ]);
   if (!isStrictEnvironment() || missing.length === 0) {
     pass('Signing secrets', 'all configured');
