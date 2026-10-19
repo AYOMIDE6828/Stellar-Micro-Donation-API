@@ -80,7 +80,7 @@ function authenticatedCreateGuards(payloadLimit) {
  * Requires idempotency key to prevent duplicate transactions.
  * Rate limited: 10 requests per minute per IP.
  */
-router.post('/send', rotationLockMiddleware(), payloadSizeLimiter(ENDPOINT_LIMITS.singleDonation), donationRateLimiter, requireIdempotency, sendDonationSchema, asyncHandler(async (req, res, next) => {
+router.post('/send', rotationLockMiddleware(), payloadSizeLimiter(ENDPOINT_LIMITS.singleDonation), donationRateLimiter, requireApiKey, checkPermission(PERMISSIONS.DONATIONS_CREATE), requireIdempotency, sendDonationSchema, asyncHandler(async (req, res, next) => {
   try {
     const { senderId, receiverId, amount, memo, campaign_id, asset } = req.body;
 
