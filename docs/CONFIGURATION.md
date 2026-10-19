@@ -358,7 +358,7 @@ npm run config:check      # what CI runs: schema covers src/, generated files ar
 |---|---|---|---|---|
 | `BODY_DEDUP_WINDOW_SECONDS` | integer | `60` | no | Window (seconds) in which identical mutating requests without an Idempotency-Key are deduplicated by body hash Minimum: 1. |
 | `MEMO_COLLISION_WINDOW_MS` | integer | `300000` | no | Window (ms) in which duplicate memo values are considered collisions |
-| `MEMO_KEYS_DIR` | string | `./data/memo-keys` | no | Directory where memo encryption keys are persisted |
+| `MEMO_KEYS_DIR` | string | `./data/memo-keys` | no | Directory where memo encryption keys are persisted. Must be outside the repository when `NODE_ENV=production` (startup fails otherwise) |
 | `NONCE_CLEANUP_INTERVAL_MS` | integer | `300000` | no | Interval (ms) between nonce-store cleanup passes |
 | `NONCE_MAX_SIZE` | integer | `100000` | no | Maximum number of nonce entries held in memory |
 | `REPLAY_CLEANUP_INTERVAL_SECONDS` | integer | `60` | no | Interval (seconds) between replay-store cleanup passes |
