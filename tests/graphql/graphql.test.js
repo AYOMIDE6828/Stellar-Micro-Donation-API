@@ -51,6 +51,7 @@ const mockWallets = [
 
 const donationService = {
   getAllDonations: jest.fn(() => mockDonations),
+  getDonationsPage: jest.fn(({ limit, offset }) => mockDonations.slice(offset, offset + limit)),
   getDonationById: jest.fn((id) => mockDonations.find((d) => d.id === id) ?? null),
   getRecentDonations: jest.fn((limit) => mockDonations.slice(0, limit)),
   sendCustodialDonation: jest.fn(async ({ amount }) => ({ id: 99, amount, stellarTxId: 'mock-tx', status: 'pending', timestamp: new Date().toISOString() })),
@@ -63,6 +64,7 @@ const donationService = {
 
 const walletService = {
   getAllWallets: jest.fn(() => mockWallets),
+  getWalletsPage: jest.fn(async ({ limit, offset }) => mockWallets.slice(offset, offset + limit)),
   getWalletById: jest.fn((id) => mockWallets.find((w) => w.id === id) ?? null),
   createWallet: jest.fn(async ({ address, label, ownerName }) => ({
     id: 99,
@@ -121,7 +123,7 @@ describe('GraphQL — Queries', () => {
     expect(result.errors).toBeUndefined();
     expect(result.data.donations).toHaveLength(2);
     expect(result.data.donations[0].id).toBe(1);
-    expect(donationService.getAllDonations).toHaveBeenCalledTimes(1);
+    expect(donationService.getDonationsPage).toHaveBeenCalledWith({ limit: 20, offset: 0 });
   });
 
   test('donation query returns a single donation by id', async () => {
@@ -153,7 +155,7 @@ describe('GraphQL — Queries', () => {
     const result = await run('{ wallets { id address label } }');
     expect(result.errors).toBeUndefined();
     expect(result.data.wallets).toHaveLength(2);
-    expect(walletService.getAllWallets).toHaveBeenCalledTimes(1);
+    expect(walletService.getWalletsPage).toHaveBeenCalledWith({ limit: 20, offset: 0 });
   });
 
   test('wallet query returns a single wallet by id', async () => {
@@ -478,7 +480,7 @@ describe('GraphQL — Error handling', () => {
   beforeEach(() => jest.clearAllMocks());
 
   test('service error in query propagates as GraphQL error', async () => {
-    donationService.getAllDonations.mockImplementationOnce(() => {
+    donationService.getDonationsPage.mockImplementationOnce(() => {
       throw new Error('DB connection failed');
     });
     const result = await run('{ donations { id } }');
@@ -630,14 +632,14 @@ describe('GraphQL — Pagination caps on queries (#1372)', () => {
       id: i + 1, senderId: 1, receiverId: 2, amount: 1, memo: null,
       status: 'pending', stellar_tx_id: null, timestamp: '2024-01-01T00:00:00Z',
     }));
-    donationService.getAllDonations.mockReturnValueOnce(bigList);
+    donationService.getDonationsPage.mockImplementationOnce(({ limit, offset }) => bigList.slice(offset, offset + limit));
     const result = await run('{ donations { id } }');
     expect(result.errors).toBeUndefined();
     expect(result.data.donations).toHaveLength(20);
   });
 
   test('donations query respects explicit limit within cap', async () => {
-    donationService.getAllDonations.mockReturnValueOnce(mockDonations);
+    donationService.getDonationsPage.mockImplementationOnce(({ limit, offset }) => mockDonations.slice(offset, offset + limit));
     const result = await run('{ donations(limit: 1) { id } }');
     expect(result.errors).toBeUndefined();
     expect(result.data.donations).toHaveLength(1);
@@ -648,7 +650,7 @@ describe('GraphQL — Pagination caps on queries (#1372)', () => {
       id: i + 1, senderId: 1, receiverId: 2, amount: 1, memo: null,
       status: 'pending', stellar_tx_id: null, timestamp: '2024-01-01T00:00:00Z',
     }));
-    donationService.getAllDonations.mockReturnValueOnce(bigList);
+    donationService.getDonationsPage.mockImplementationOnce(({ limit, offset }) => bigList.slice(offset, offset + limit));
     const result = await run('{ donations(limit: 10000) { id } }');
     expect(result.errors).toBeUndefined();
     expect(result.data.donations).toHaveLength(100);
@@ -661,7 +663,7 @@ describe('GraphQL — Pagination caps on queries (#1372)', () => {
       id: i + 1, address: `G${i}`, label: null, ownerName: null,
       createdAt: '2024-01-01T00:00:00Z', funded: false, sponsored: false,
     }));
-    walletService.getAllWallets.mockReturnValueOnce(bigList);
+    walletService.getWalletsPage.mockImplementationOnce(async ({ limit, offset }) => bigList.slice(offset, offset + limit));
     const result = await run('{ wallets { id } }');
     expect(result.errors).toBeUndefined();
     expect(result.data.wallets).toHaveLength(20);
@@ -672,7 +674,7 @@ describe('GraphQL — Pagination caps on queries (#1372)', () => {
       id: i + 1, address: `G${i}`, label: null, ownerName: null,
       createdAt: '2024-01-01T00:00:00Z', funded: false, sponsored: false,
     }));
-    walletService.getAllWallets.mockReturnValueOnce(bigList);
+    walletService.getWalletsPage.mockImplementationOnce(async ({ limit, offset }) => bigList.slice(offset, offset + limit));
     const result = await run('{ wallets(limit: 10000) { id } }');
     expect(result.errors).toBeUndefined();
     expect(result.data.wallets).toHaveLength(100);

@@ -134,6 +134,15 @@ class WalletService {
   }
 
   /**
+   * Get one bounded page of wallets, ordered by id, bounded in SQL.
+   * @param {{ limit: number, offset: number }} page - Already-clamped page bounds.
+   * @returns {Promise<Array>} Array of wallet objects
+   */
+  getWalletsPage(page) {
+    return Wallet.getPage(page);
+  }
+
+  /**
    * Get wallets using cursor-based pagination with stable sort.
    * Default sort is id ASC to ensure consistent pagination (#798).
    * @param {Object} pagination - Pagination options.

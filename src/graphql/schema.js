@@ -237,10 +237,10 @@ function buildQueryType({ donationService, walletService, statsService }) {
         },
         resolve: async (_, { limit, offset }, context) => {
           assertPermission(context, 'donations:read');
-          const safeLimit = clampLimit(limit);
-          const safeOffset = Math.max(0, offset ?? 0);
-          const all = await donationService.getAllDonations();
-          return all.slice(safeOffset, safeOffset + safeLimit);
+          return donationService.getDonationsPage({
+            limit: clampLimit(limit),
+            offset: Math.max(0, offset ?? 0),
+          });
         },
       },
 
@@ -294,12 +294,12 @@ function buildQueryType({ donationService, walletService, statsService }) {
           limit: { type: GraphQLInt, defaultValue: DEFAULT_PAGE_LIMIT },
           offset: { type: GraphQLInt, defaultValue: 0 },
         },
-        resolve: (_, { limit, offset }, context) => {
+        resolve: async (_, { limit, offset }, context) => {
           assertPermission(context, 'wallets:read');
-          const safeLimit = clampLimit(limit);
-          const safeOffset = Math.max(0, offset ?? 0);
-          const all = walletService.getAllWallets();
-          return all.slice(safeOffset, safeOffset + safeLimit);
+          return walletService.getWalletsPage({
+            limit: clampLimit(limit),
+            offset: Math.max(0, offset ?? 0),
+          });
         },
       },
 

@@ -483,6 +483,27 @@ class Transaction {
     return includeDeleted ? all : all.filter(t => !t.deleted_at);
   }
 
+  /**
+   * Fetch one page of transactions, stopping the scan once the page is full.
+   * Unlike getAll(), this does not copy the whole store.
+   * @param {{ limit: number, offset: number }} page - Already-clamped page bounds.
+   * @returns {Object[]} Transactions in insertion order.
+   */
+  static getPage({ limit, offset }) {
+    const page = [];
+    let skipped = 0;
+    for (const t of _store.values()) {
+      if (t.deleted_at) continue;
+      if (skipped < offset) {
+        skipped++;
+        continue;
+      }
+      page.push(t);
+      if (page.length >= limit) break;
+    }
+    return page;
+  }
+
   static updateStatus(id, status, stellarData = {}) {
     const tx = _store.get(id);
     if (!tx) throw new Error(`Transaction not found: ${id}`);

@@ -25,12 +25,14 @@ const wallet = { id: 1, address: 'GABC', label: 'Main', ownerName: 'Alice', crea
 
 const donationService = {
   getAllDonations: jest.fn(() => [donation]),
+  getDonationsPage: jest.fn(() => [donation]),
   getDonationById: jest.fn(() => donation),
   getRecentDonations: jest.fn(() => [donation]),
 };
 
 const walletService = {
   getAllWallets: jest.fn(() => [wallet]),
+  getWalletsPage: jest.fn(async () => [wallet]),
   getWalletById: jest.fn(() => wallet),
 };
 
@@ -69,7 +71,7 @@ describe('GraphQL — read queries enforce RBAC (#1890)', () => {
   test('guest cannot read wallets (no wallets:read)', async () => {
     const result = await runAs('guest', READ_QUERIES.wallets);
     expect(result.errors?.[0]?.extensions?.code).toBe('FORBIDDEN');
-    expect(walletService.getAllWallets).not.toHaveBeenCalled();
+    expect(walletService.getWalletsPage).not.toHaveBeenCalled();
   });
 
   test('guest cannot read single wallet by id', async () => {
