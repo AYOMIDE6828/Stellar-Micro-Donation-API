@@ -326,6 +326,28 @@ function recordLegacyPathRequest(path, apiKeyId) {
   } catch (_) {}
 }
 
+/**
+ * Counter: requests authenticated with a legacy environment-based API key.
+ * Labels: key_id_hash — non-reversible hash of the legacy key (never the raw key)
+ * @type {client.Counter}
+ */
+const legacyApiKeyUsageTotal = new client.Counter({
+  name: 'legacy_api_key_usage_total',
+  help: 'Total requests authenticated with a legacy environment-based API key',
+  labelNames: ['key_id_hash'],
+  registers: [registry],
+});
+
+/**
+ * Records one authenticated request made with a legacy key.
+ * @param {string} keyIdHash Hashed legacy key identifier
+ */
+function recordLegacyKeyUsage(keyIdHash) {
+  try {
+    legacyApiKeyUsageTotal.inc({ key_id_hash: keyIdHash || 'unknown' });
+  } catch (_) { /* best-effort */ }
+}
+
 // ─── Scheduler Leader Election Metrics (#1604) ───────────────────────────────
 
 /**
@@ -386,6 +408,9 @@ module.exports = {
   // Legacy unversioned path metrics (#1802)
   legacyPathRequestsTotal,
   recordLegacyPathRequest,
+  // Legacy API key usage (#1886)
+  legacyApiKeyUsageTotal,
+  recordLegacyKeyUsage,
   // Scheduler leader election metrics (#1604)
   schedulerLockAcquisitionsTotal,
   schedulerLockReleasesTotal,

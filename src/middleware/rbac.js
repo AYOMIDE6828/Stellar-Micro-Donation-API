@@ -22,6 +22,8 @@ const { tierMeetsMinimum } = require('../config/permissionMatrix');
 const { verifyAccessToken } = require('../services/JwtService');
 const { hasScope, hasAnyScope, hasAllScopes } = require('../utils/scopeValidator');
 const log = require('../utils/log');
+const { getLegacyKeySunsetDate, isLegacyKeyDisabled } = require('../utils/legacyApiKeySunset');
+const { recordLegacyKeyUsage } = require('../utils/metrics');
 
 /**
  * Role-Based Access Control (RBAC) Configuration
@@ -424,12 +426,26 @@ const attachUserRole = () => {
             // Derive a stable, non-reversible ID for rate-limiting without storing the raw key
             const legacyKeyId = 'legacy-' + crypto.createHash('sha256').update(apiKey).digest('hex').slice(0, 16);
 
+            if (isLegacyKeyDisabled()) {
+              log.warn('RBAC', 'Rejected legacy API key after sunset', { keyIdHash: legacyKeyId, sunsetDate: getLegacyKeySunsetDate() });
+              return res.status(401).json({
+                success: false,
+                error: {
+                  code: 'LEGACY_API_KEY_DISABLED',
+                  message: `Legacy API keys were disabled on ${getLegacyKeySunsetDate()}. Create a database-backed key with "npm run keys:create". See docs/MIGRATION_LEGACY_API_KEYS.md`,
+                  requestId: req.id,
+                },
+              });
+            }
+
+            recordLegacyKeyUsage(legacyKeyId);
+
             // Apply the same default rate limit as DB-backed keys
             const rlResult = checkRateLimit(legacyKeyId, DEFAULT_RATE_LIMIT, DEFAULT_WINDOW_SECONDS);
             const rlHeaders = buildRateLimitHeaders(rlResult.limit, rlResult.remaining, Math.ceil(rlResult.resetAt / 1000));
             res.set(rlHeaders);
             res.set('X-API-Key-Legacy', 'true');
-            res.set('Warning', '299 - "Legacy API key in use. Migrate to database-backed keys before 2026-12-31. See docs/MIGRATION_LEGACY_API_KEYS.md"');
+            res.set('Warning', `299 - "Legacy API key in use. Migrate to database-backed keys before ${getLegacyKeySunsetDate()}. See docs/MIGRATION_LEGACY_API_KEYS.md"`);
 
             if (!rlResult.allowed && process.env.NODE_ENV !== 'test') {
               res.set('Retry-After', String(Math.ceil((rlResult.resetAt - Date.now()) / 1000)));
@@ -464,7 +480,7 @@ const attachUserRole = () => {
               details: {
                 method: req.method,
                 keyIdHash: legacyKeyId,
-                sunsetDate: '2026-12-31',
+                sunsetDate: getLegacyKeySunsetDate(),
               },
             }).catch(() => {});
           }

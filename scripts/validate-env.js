@@ -93,8 +93,9 @@ if (kmsConfigured) {
   );
 }
 
-checkRequired('API_KEYS', v => v.split(',').map(k => k.trim()).filter(Boolean).length > 0,
-  'must contain at least one API key (comma-separated)');
+// OPTIONAL — legacy keys; database-backed keys (npm run keys:create) are the supported path
+checkOptional('API_KEYS', v => v.split(',').map(k => k.trim()).filter(Boolean).length > 0,
+  'if set, must contain at least one API key (comma-separated)');
 
 // OPTIONAL — server
 checkOptional('PORT',

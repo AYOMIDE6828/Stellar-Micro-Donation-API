@@ -13,6 +13,7 @@ const { securityConfig } = require("../config/securityConfig");
 const { validateKey} = require("../models/apiKeys");
 const { verifyAccessToken } = require("../services/JwtService");
 const log = require("../utils/log");
+const { isLegacyKeyDisabled, getLegacyKeySunsetDate } = require("../utils/legacyApiKeySunset");
 const AuditLogService = require("../services/AuditLogService");
 const { verify: verifySignature } = require("../utils/requestSigner");
 const { isIpAllowed } = require("../utils/ipAllowlist");
@@ -386,6 +387,21 @@ const requireApiKey = async (req, res, next) => {
       // Use constant-time comparison to prevent timing attacks
       for (const legacyKey of legacyKeys) {
         if (safeEqual(apiKey, legacyKey)) {
+          if (isLegacyKeyDisabled()) {
+            log.warn("API_KEY_AUTH", "Rejected legacy API key after sunset", {
+              sunsetDate: getLegacyKeySunsetDate(),
+            });
+            return res.status(401).json({
+              success: false,
+              error: {
+                code: "LEGACY_API_KEY_DISABLED",
+                message: `Legacy API keys were disabled on ${getLegacyKeySunsetDate()}. Create a database-backed key with "npm run keys:create".`,
+                requestId: req.id,
+                timestamp: new Date().toISOString(),
+              },
+            });
+          }
+
           log.warn("API_KEY_AUTH", "Using legacy environment-based API key", {
             message:
               "Consider migrating to database-backed keys for rotation support",

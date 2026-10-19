@@ -16,6 +16,7 @@ const Database = require('./database');
 const fs = require('fs');
 const path = require('path');
 const { isValidStellarSecretKey } = require('./validators');
+const { getLegacyKeySunsetDate } = require('./legacyApiKeySunset');
 
 const STELLAR_TIMEOUT_MS = 5000;
 
@@ -126,14 +127,11 @@ function checkApiKeys() {
   const raw = process.env.API_KEYS;
   const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 
-  if (!raw || !raw.trim()) {
-    fail('API_KEYS', 'not set — no requests will be authenticated');
-    return false;
-  }
-  const keys = raw.split(',').map(k => k.trim()).filter(Boolean);
+  // Legacy keys are optional: database-backed keys (npm run keys:create) are the supported path.
+  const keys = (raw || '').split(',').map(k => k.trim()).filter(Boolean);
   if (keys.length === 0) {
-    fail('API_KEYS', 'set but contains no valid keys');
-    return false;
+    pass('API_KEYS', 'not set — authentication uses database-backed keys only');
+    return true;
   }
 
   if (isProduction) {
@@ -154,8 +152,8 @@ function checkApiKeys() {
       'API_KEYS (legacy)',
       `${keys.length} legacy key(s) detected in production. ` +
       'Legacy keys bypass quota tracking and cannot be revoked without a restart. ' +
-      'Migrate to database-backed keys before 2026-12-31. ' +
-      'See docs/MIGRATION_LEGACY_API_KEYS.md'
+      `Legacy keys are rejected after ${getLegacyKeySunsetDate()}. ` +
+      'Migrate to database-backed keys. See docs/MIGRATION_LEGACY_API_KEYS.md'
     );
   } else {
     pass('API_KEYS', `${keys.length} legacy key(s) configured (non-production)`);
