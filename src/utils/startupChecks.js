@@ -482,6 +482,7 @@ function checkDbPath() {
 
 /** Stellar signing key env vars — validated for format when present (#1234) */
 const STELLAR_SIGNING_KEY_VARS = [
+  'SEP10_SIGNING_KEY',
   'SERVICE_SECRET_KEY',
   'SERVICE_SIGNING_KEY',
   'STELLAR_SECRET',
@@ -512,6 +513,16 @@ function checkStellarSigningKeys() {
       continue;
     }
     pass(name, 'valid Stellar secret key format');
+  }
+
+  // SEP-10 challenges are signed with SEP10_SIGNING_KEY, or the funded service key as a legacy fallback (#1888)
+  if (!(process.env.SEP10_SIGNING_KEY || '').trim() && isProduction && !isMock &&
+      (process.env.STELLAR_SECRET || process.env.SERVICE_SECRET_KEY)) {
+    warn(
+      'SEP10_SIGNING_KEY',
+      'not set — SEP-10 challenges are signed with the funded service key. ' +
+      'Set a dedicated, unfunded SEP10_SIGNING_KEY.'
+    );
   }
 
   return allOk;
