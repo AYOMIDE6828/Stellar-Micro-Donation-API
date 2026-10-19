@@ -76,7 +76,8 @@ function buildTestApp() {
   app.use('/api/v1/stream',       require('../../src/routes/stream'));
   app.use('/api/v1/transactions', require('../../src/routes/transaction'));
   app.use('/api/v1/api-keys',     require('../../src/routes/apiKeys'));
-  app.use('/admin/geo-blocking',  require('../../src/routes/admin/geoBlocking'));
+  app.use('/admin/geo-rules',     require('../../src/routes/admin/geoRules'));
+  app.use('/admin/geo-blocking',  require('../../src/routes/admin/geoRules').deprecatedRouter);
   app.use('/admin/backups',       require('../../src/routes/admin/backup'));
 
   // /abuse-signals and /reconcile are registered inline in
@@ -326,6 +327,19 @@ const MATRIX_ENTRIES = [
   ...[
     ['GET',    '/abuse-signals'],
     ['POST',   '/reconcile'],
+    // Geo rules canonical routes (#1778)
+    ['GET',    '/admin/geo-rules'],
+    ['POST',   '/admin/geo-rules'],
+    ['PATCH',  '/admin/geo-rules/999'],
+    ['DELETE', '/admin/geo-rules/999'],
+    ['POST',   '/admin/geo-rules/test'],
+    ['GET',    '/admin/geo-rules/active'],
+    ['GET',    '/admin/geo-rules/config'],
+    ['PUT',    '/admin/geo-rules/config'],
+    ['POST',   '/admin/geo-rules/reload-db'],
+    ['DELETE', '/admin/geo-rules/block/999'],
+    ['DELETE', '/admin/geo-rules/allow/999'],
+    // Deprecated /admin/geo-blocking aliases — must stay behind the same guard
     ['GET',    '/admin/geo-blocking'],
     ['PUT',    '/admin/geo-blocking'],
     ['POST',   '/admin/geo-blocking/reload-db'],

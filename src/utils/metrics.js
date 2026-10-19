@@ -288,11 +288,42 @@ const leaderboardComputeDuration = new client.Histogram({
 });
 
 function recordLeaderboardCacheHit() {
-  try { leaderboardCacheLookupsTotal.inc({ result: 'hit' }); } catch (_) {}
+  try { leaderboardCacheLookupsTotal.inc({ result: 'hit' }); } catch (_) { /* best-effort */ }
 }
 
 function recordLeaderboardCacheMiss() {
-  try { leaderboardCacheLookupsTotal.inc({ result: 'miss' }); } catch (_) {}
+  try { leaderboardCacheLookupsTotal.inc({ result: 'miss' }); } catch (_) { /* best-effort */ }
+}
+
+// ─── Legacy Unversioned Path Metrics (#1802) ─────────────────────────────────
+
+/**
+ * Counter: total requests made to legacy (unversioned) API paths that are
+ * served via a 308 redirect to /api/v1/*.
+ * Labels:
+ *   path    — normalised legacy path (e.g. /stats/overpayments)
+ *   api_key — API key id making the request, or 'anonymous'
+ * @type {client.Counter}
+ */
+const legacyPathRequestsTotal = new client.Counter({
+  name: 'legacy_path_requests_total',
+  help: 'Total number of requests to legacy unversioned API paths (redirected to /api/v1)',
+  labelNames: ['path', 'api_key'],
+  registers: [registry],
+});
+
+/**
+ * Records a request to a legacy unversioned path.
+ * @param {string} path Normalised legacy path
+ * @param {string} [apiKeyId] API key id, or 'anonymous' when unauthenticated
+ */
+function recordLegacyPathRequest(path, apiKeyId) {
+  try {
+    legacyPathRequestsTotal.inc({
+      path: normaliseRoute(path || 'unknown'),
+      api_key: apiKeyId || 'anonymous',
+    });
+  } catch (_) {}
 }
 
 // ─── Scheduler Leader Election Metrics (#1604) ───────────────────────────────
@@ -322,13 +353,13 @@ const schedulerLockReleasesTotal = new client.Counter({
 function recordSchedulerLockAcquisition(status = 'acquired') {
   try {
     schedulerLockAcquisitionsTotal.inc({ status });
-  } catch (_) {}
+  } catch (_) { /* best-effort */ }
 }
 
 function recordSchedulerLockRelease() {
   try {
     schedulerLockReleasesTotal.inc();
-  } catch (_) {}
+  } catch (_) { /* best-effort */ }
 }
 
 module.exports = {
@@ -352,6 +383,9 @@ module.exports = {
   recurringDonationsSuspendedTotal,
   recurringDonationsActiveCount,
   recurringDonationsSkippedTotal,
+  // Legacy unversioned path metrics (#1802)
+  legacyPathRequestsTotal,
+  recordLegacyPathRequest,
   // Scheduler leader election metrics (#1604)
   schedulerLockAcquisitionsTotal,
   schedulerLockReleasesTotal,

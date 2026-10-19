@@ -33,7 +33,11 @@ let _loading = null; // Promise<void> | null
 let _loadError = null;
 
 /**
- * Persist a single record to SQLite (fire-and-forget).
+ * Persist a single record to SQLite.
+ *
+ * Returns the underlying promise so callers can await it. Failures are logged
+ * and rethrown (as DatabaseError where the driver provides one) rather than
+ * swallowed — a failed write must never be silently treated as success.
  * Stroop amounts are stored as exact integers to avoid float coercion.
  */
 function _persist(tx) {
@@ -41,7 +45,7 @@ function _persist(tx) {
   const amountStroops = Number.isInteger(tx.amount) ? tx.amount : null;
   const data = JSON.stringify(tx);
 
-  Database.run(
+  return Database.run(
     `INSERT INTO donations_store
        (id, donor, recipient, amount_stroops, amount_text, status,
         idempotency_key, stellar_tx_id, timestamp, status_updated_at, deleted_at, valid_after, valid_before, data)
@@ -80,7 +84,23 @@ function _persist(tx) {
     }
 
     log.error('TRANSACTION_MODEL', 'SQLite persist failed', { id: tx.id, error: err.message });
+    throw err;
   });
+}
+
+/**
+ * Fire-and-forget wrapper around _persist() for the synchronous public API.
+ * The write still propagates its rejection to the returned promise; callers
+ * that cannot await get an unhandled-rejection-free log via this helper.
+ */
+function _persistAsync(tx) {
+  const pending = _persist(tx);
+  if (pending && typeof pending.catch === 'function') {
+    pending.catch(() => {
+      // Already logged inside _persist(); swallow only the unhandled rejection.
+    });
+  }
+  return pending;
 }
 
 /**
@@ -211,7 +231,7 @@ class Transaction {
     if (newTransaction.idempotencyKey) {
       _idempotencyIndex.set(newTransaction.idempotencyKey, newTransaction);
     }
-    _persist(newTransaction);
+    _persistAsync(newTransaction);
 
     if (Array.isArray(newTransaction.tags) && newTransaction.tags.length > 0) {
       try {
@@ -505,7 +525,7 @@ class Transaction {
     }
 
     _store.set(id, updated);
-    _persist(updated);
+    _persistAsync(updated);
 
     const emitter = this.eventEmitter;
     if (emitter) {
@@ -539,7 +559,7 @@ class Transaction {
     if (feeBumpData.stellarTxId !== undefined) updated.stellarTxId = feeBumpData.stellarTxId;
 
     _store.set(id, updated);
-    _persist(updated);
+    _persistAsync(updated);
     return updated;
   }
 
@@ -587,7 +607,7 @@ class Transaction {
     const updated = { ...tx, approvals };
 
     _store.set(id, updated);
-    _persist(updated);
+    _persistAsync(updated);
     return updated;
   }
 
@@ -603,7 +623,7 @@ class Transaction {
     const updated = { ...tx, matchedDonationId };
 
     _store.set(id, updated);
-    _persist(updated);
+    _persistAsync(updated);
     return updated;
   }
 
@@ -620,7 +640,7 @@ class Transaction {
     }
 
     _store.set(id, updated);
-    _persist(updated);
+    _persistAsync(updated);
     return updated;
   }
 
@@ -631,9 +651,10 @@ class Transaction {
     _loaded = true;
     _loadError = null;
     const Database = require('../utils/database');
-    Database.run('DELETE FROM donations_store').catch(err =>
-      log.error('TRANSACTION_MODEL', 'Failed to clear donations_store', { error: err.message })
-    );
+    return Database.run('DELETE FROM donations_store').catch(err => {
+      log.error('TRANSACTION_MODEL', 'Failed to clear donations_store', { error: err.message });
+      throw err;
+    });
   }
 
   /**

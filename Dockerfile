@@ -41,10 +41,12 @@ USER appuser
 # Document the service port
 EXPOSE 3000
 
-# Health check to verify application is running and responsive
-# Probes the readiness endpoint which indicates application is ready to serve requests
+# Health check to verify the application process is alive and responsive.
+# Probes the liveness endpoint, which is process-only and does not check
+# external dependencies: a dependency outage must not cause Docker to
+# restart otherwise healthy containers. Readiness is handled by orchestrators.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:3000/health/ready || exit 1
+  CMD wget -qO- http://localhost:3000/health/live || exit 1
 
 # Start application
 CMD ["node", "src/app.js"]

@@ -131,7 +131,28 @@ function invalidateRotationLockCache(keyName) {
  */
 function rotationLockMiddleware(keyName = 'memoEncryption') {
   return async (req, res, next) => {
+    // Reuse the per-request result if another middleware already checked this key
+    if (req.rotationLockState && req.rotationLockState.keyName === keyName) {
+      return handleLockState(req, res, next, keyName, req.rotationLockState.lock);
+    }
+
     const lock = await getLockState(keyName);
+    req.rotationLockState = { keyName, lock };
+
+    return handleLockState(req, res, next, keyName, lock);
+  };
+}
+
+/**
+ * Apply the fail-open/503 policy for a resolved lock state.
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {Function} next
+ * @param {string} keyName
+ * @param {{inProgress: boolean, startedAt: string|null}} lock
+ */
+function handleLockState(req, res, next, keyName, lock) {
+  {
 
     if (lock.inProgress) {
       log.warn('ROTATION_LOCK', `Key rotation in progress for ${keyName}`, {
@@ -153,7 +174,7 @@ function rotationLockMiddleware(keyName = 'memoEncryption') {
     }
 
     return next();
-  };
+  }
 }
 
 /**

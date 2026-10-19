@@ -12,8 +12,6 @@
  * 4. Alerting on failures
  */
 
-const fs = require('fs');
-const path = require('path');
 const os = require('os');
 const log = require('../utils/log');
 const timerRegistry = require('../utils/timerRegistry');

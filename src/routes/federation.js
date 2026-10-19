@@ -16,6 +16,7 @@
 'use strict';
 
 const express = require('express');
+const StellarSdk = require('stellar-sdk');
 const router = express.Router();
 const log = require('../utils/log');
 const config = require('../config');
@@ -43,7 +44,8 @@ try {
 
 /**
  * GET /.well-known/stellar.toml
- * Advertises this server as a federation server.
+ * Advertises this server as a federation server (SEP-0002) and its SEP-0010
+ * web auth endpoint. This is the only handler for this path (issue #1779).
  * CORS must be open (*) per the Stellar protocol spec.
  */
 router.get('/.well-known/stellar.toml', (req, res) => {
@@ -51,13 +53,31 @@ router.get('/.well-known/stellar.toml', (req, res) => {
   const protocol = process.env.NODE_ENV === 'production' ? 'https' : req.protocol;
   const federationUrl = `${protocol}://${domain}/federation`;
 
-  res.set('Content-Type', 'text/plain; charset=utf-8');
-  res.set('Access-Control-Allow-Origin', '*');
-  res.send([
+  // SEP-0010 web auth hints
+  const host = req.get('host') || 'localhost';
+  const scheme = req.protocol || 'https';
+  const authServer = `${scheme}://${host}/auth`;
+
+  const lines = [
     `# Stellar TOML for ${domain}`,
+    'VERSION="1.0.0"',
     `FEDERATION_SERVER="${federationUrl}"`,
     `NETWORK_PASSPHRASE="${config.stellar.environment.networkPassphrase}"`,
-  ].join('\n'));
+    `AUTH_SERVER="${authServer}"`,
+  ];
+
+  const signingSecret = process.env.SERVICE_SIGNING_KEY || process.env.SERVICE_SECRET_KEY || process.env.STELLAR_SECRET || '';
+  if (signingSecret) {
+    try {
+      lines.push(`SIGNING_KEY="${StellarSdk.Keypair.fromSecret(signingSecret).publicKey()}"`);
+    } catch (err) {
+      log.warn('FEDERATION', 'Invalid signing secret; omitting SIGNING_KEY from stellar.toml', { error: err.message });
+    }
+  }
+
+  res.set('Content-Type', 'text/plain; charset=utf-8');
+  res.set('Access-Control-Allow-Origin', '*');
+  res.send(lines.join('\n'));
 });
 
 /**

@@ -12,7 +12,9 @@ const StellarSdk = require('../services/stellar/sdk.js');
  * Stellar amounts are int64 stroops (1 XLM = 10^7 stroops), so the largest
  * representable amount is 9223372036854775807 / 10^7 = 922337203685.4775807 XLM.
  */
-const MAX_AMOUNT_XLM = 922337203685.4775807;
+// Written as the nearest representable double; the exact value is not
+// representable as a Number (no-loss-of-precision).
+const MAX_AMOUNT_XLM = 922337203685.4775;
 
 /** Validate a Stellar Ed25519 public key. */
 const isValidStellarPublicKey = (key) => {
@@ -59,6 +61,7 @@ const isValidAmount = (amount) => {
   const trimmed = amount.trim();
   // Require a plain decimal string: optional integer part, optional fraction
   // with at most 7 digits. Rejects exponent notation, signs, and whitespace.
+  // eslint-disable-next-line security/detect-unsafe-regex -- anchored; repeated groups are separated by a literal delimiter, so matching is linear
   if (!/^\d+(\.\d{1,7})?$/.test(trimmed)) return false;
 
   const num = Number(trimmed);

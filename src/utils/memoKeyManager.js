@@ -27,10 +27,12 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const log = require('./log');
+const { env } = require('../config/env');
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
-const KEYS_STORAGE_PATH = process.env.MEMO_KEYS_DIR || path.join(__dirname, '../../data/memo-keys');
+// Relative paths resolve against the project root; absolute paths are kept as-is.
+const KEYS_STORAGE_PATH = path.resolve(__dirname, '../..', env.MEMO_KEYS_DIR);
 const KEYS_INDEX_FILE = path.join(KEYS_STORAGE_PATH, 'keys.json');
 
 const KEY_STATUS = Object.freeze({

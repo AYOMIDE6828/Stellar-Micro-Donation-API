@@ -12,11 +12,9 @@ High line coverage only proves code ran—not that assertions would catch a real
 
 Stryker is configured via `stryker.conf.json` and targets critical modules:
 
-- `src/services/DonationService.js` - Payment logic
-- `src/routes/donation.js` - HTTP endpoints
-- `src/lib/transactionStateMachine.js` - State transitions
-- `src/lib/validators.js` - Input validation
-- `src/lib/moneyMath.js` - Financial calculations
+- `src/utils/money.js` - Financial calculations (stroop arithmetic, ADR-004)
+- `src/utils/validators.js` - Input validation
+- `src/utils/transactionStateMachine.js` - State transitions
 
 ### Running Mutation Tests
 
@@ -136,7 +134,12 @@ npm run mutation:test
 
 ## CI Integration
 
-**Non-blocking initially**: Mutation tests run in CI but do not block merge.
+**Non-blocking initially**: Mutation tests run weekly (Mondays 03:00 UTC) via
+`.github/workflows/mutation-weekly.yml`, and can be started manually from the
+Actions tab (`workflow_dispatch`). They do not block merge. The HTML and JSON
+reports from `reports/mutation/` are uploaded as the `mutation-report` artifact
+and kept for 30 days. The workflow installs Stryker with `npm install --no-save`,
+so it is not part of `package.json`.
 
 Once the baseline stabilizes (85%+), consider gating on mutation score to prevent regression.
 

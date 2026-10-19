@@ -1,7 +1,6 @@
 const StellarSdk = require('./sdk.js');
 const StellarErrorHandler = require('../../utils/stellarErrorHandler');
 const log = require('../../utils/log');
-const { withTimeout } = require('../../utils/timeoutHandler');
 const { toStellarSdkAsset, serializeAsset, isSameAsset, normalizeHorizonAsset } = require('../../utils/stellarAsset');
 const { ValidationError, ERROR_CODES } = require('../../utils/errors');
 

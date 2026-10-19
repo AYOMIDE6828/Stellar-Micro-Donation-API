@@ -10,7 +10,6 @@
 'use strict';
 
 const express = require('express');
-const StellarSdk = require('../services/stellar/sdk.js');
 const asyncHandler = require('../utils/asyncHandler');
 const log = require('../utils/log');
 const requireApiKey = require('../middleware/apiKey');
@@ -19,8 +18,9 @@ const { payloadSizeLimiter, ENDPOINT_LIMITS } = require('../middleware/payloadSi
 const { healthCheckRateLimiter } = require('../middleware/rateLimiter');
 const { parseCursorPaginationQuery } = require('../utils/pagination');
 const { errorHandler, notFoundHandler } = require('../middleware/errorHandler');
-const { registerMethod, clearRegistry } = require('../middleware/methodRegistry');
+const { registerMethod, clearRegistry, assertNoDuplicateRoutes } = require('../middleware/methodRegistry');
 const { optionsHandler, methodNotAllowedHandler } = require('../middleware/methodNotAllowedHandler');
+const { DEPRECATION_SUNSET } = require('../middleware/deprecation');
 const HealthCheckService = require('../services/HealthCheckService');
 const AuditLogService = require('../services/AuditLogService');
 const Database = require('../utils/database');
@@ -29,10 +29,10 @@ const state = require('./state');
 // ── Versioned API v1 routes ────────────────────────────────────────────────────
 const V1_ROUTES = [
   ['/fees',                           require('../routes/fees')],
-  ['/wallets',                        require('../routes/wallet')],
+  ['/wallets',                        require('../routes/wallets')],
   ['/wallets',                        require('../routes/signers').thresholdsRouter],
   ['/',                               require('../routes/recovery')],
-  ['/donations',                      require('../routes/donation')],
+  ['/donations',                      require('../routes/donations')],
   ['/donations',                      require('../routes/receipt')],
   ['/donations',                      require('../routes/disputes')],
   ['/donations/recurring',            require('../routes/recurringDonation')],
@@ -51,12 +51,13 @@ const V1_ROUTES = [
   ['/tools',                          require('../routes/tools')],
   ['/auth',                           require('../routes/auth')],
   ['/docs',                           require('../routes/docs')],
-  ['/transactions',                   require('../routes/transaction')],
+  ['/transactions',                   require('../routes/transactions')],
   ['/contracts',                      require('../routes/contracts')],
-  ['/transactions/bump-sequence',     require('../routes/transactions/bump-sequence')],
   ['/claimable-balances',             require('../routes/claimableBalances')],
   ['/liquidity-pools',                require('../routes/liquidity-pools')],
   ['/channels',                       require('../routes/channels')],
+  // Read-only client view of flags; management lives only in /admin/feature-flags (#1775)
+  ['/feature-flags',                  require('../routes/feature-flags')],
 ];
 
 // ── Admin routes ──────────────────────────────────────────────────────────────
@@ -75,15 +76,13 @@ const ADMIN_ROUTES = [
   ['/admin/feature-flags',            require('../routes/admin/featureFlags')],
   ['/admin',                          require('../routes/admin')],
   ['/admin/backups',                  require('../routes/admin/backup')],
-  ['/admin/audit-logs/export',        require('../routes/admin/auditLogExport')],
+  ['/admin/audit-logs/export',        require('../routes/auditLogExport').adminRouter],
   ['/admin/security/scan',            require('../routes/admin/securityScan')],
   ['/admin/analytics',                require('../routes/admin/analytics')],
-  ['/admin/api-keys/usage',           require('../routes/admin/apiKeyUsage')],
-  ['/admin/api-keys',                 require('../routes/admin/apiKeyAnalytics')],
+  ['/admin/api-keys',                 require('../routes/apiKeyUsage').adminRouter],
   ['/admin/circuit-breaker',          require('../routes/admin/circuitBreaker')],
-  ['/admin/corporate-matching',       require('../routes/admin/corporateMatching')],
+  ['/admin/corporate-matching',       require('../routes/corporateMatching').adminRouter],
   ['/admin/encryption',               require('../routes/admin/encryption')],
-  ['/admin/feature-flags',            require('../routes/admin/featureFlags')],
   ['/admin/geo-blocking',             require('../routes/admin/geoBlocking')],
   ['/admin/impact-metrics',           require('../routes/admin/impactMetrics')],
   ['/admin/sdg-mapping',              require('../routes/admin/impactMetrics')],
@@ -93,9 +92,15 @@ const ADMIN_ROUTES = [
   ['/admin/traces',                   require('../routes/admin/traces')],
   ['/admin',                          require('../routes/admin/startupReport')],
   ['/admin/wallets',                  require('../routes/admin/walletLimits')],
-  ['/admin/wallets',                  require('../routes/admin/walletDonationLimits')],
   ['/admin/wallets/bulk-import',        require('../routes/admin/bulkWalletImport')],
   ['/admin/webhooks',                 require('../routes/admin/webhooks')],
+  ['/admin/inspect/xdr',              require('../routes/admin/inspect')],
+
+  // ── Deprecated aliases kept for one release after route consolidation (#1778).
+  // Same handlers as the canonical routes; responses carry Deprecation, Sunset
+  // and Link headers. Remove after the sunset date (1 Jan 2027).
+  ['/admin/geo-blocking',             require('../routes/admin/geoRules').deprecatedRouter],
+  ['/admin/transactions',             require('../routes/admin/inspect').deprecatedRouter],
 ];
 
 // Unversioned paths that redirect to /api/v1 (Issue #738)
@@ -104,8 +109,69 @@ const UNVERSIONED_PATHS = [
   '/webhooks', '/campaigns', '/pledges', '/encryption', '/tiers', '/offers', '/orderbook',
   '/tags', '/leaderboard', '/federation', '/tools', '/auth', '/docs',
   '/transactions', '/claimable-balances', '/liquidity-pools', '/exchange-rates',
-  '/impact',
+  '/impact', '/feature-flags',
+  // Payment channels were introduced as an unversioned API (Issue #1803);
+  // the legacy path now goes through the same deprecation treatment.
+  '/channels',
 ];
+
+// Sunset date for all unversioned legacy paths (Issue #1802).
+const LEGACY_SUNSET = 'Sat, 01 Jan 2027 00:00:00 GMT';
+
+// In-memory counter of legacy-path hits, keyed by API key id ('anonymous' when
+// unauthenticated). Exposed for metrics scrapers / tests via getLegacyPathMetrics().
+const legacyPathUsage = new Map();
+
+/**
+ * Record a hit on a legacy (unversioned) path for metrics.
+ *
+ * @param {string} apiKeyId
+ * @param {string} path
+ */
+function recordLegacyPathUsage(apiKeyId, path) {
+  const key = apiKeyId || 'anonymous';
+  const entry = legacyPathUsage.get(key) || { count: 0, paths: new Map() };
+  entry.count += 1;
+  entry.paths.set(path, (entry.paths.get(path) || 0) + 1);
+  legacyPathUsage.set(key, entry);
+}
+
+/**
+ * Snapshot of legacy-path usage, keyed by API key id.
+ *
+ * @returns {Object<string, {count: number, paths: Object<string, number>}>}
+ */
+function getLegacyPathMetrics() {
+  const snapshot = {};
+  for (const [key, entry] of legacyPathUsage.entries()) {
+    snapshot[key] = { count: entry.count, paths: Object.fromEntries(entry.paths) };
+  }
+  return snapshot;
+}
+
+/**
+ * Shared 308 redirect handler for unversioned legacy paths.
+ * Sets Deprecation / Sunset / Link headers, records usage metrics and logs a
+ * warning before redirecting to the versioned equivalent.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+function legacyRedirect(req, res) {
+  const apiKeyId = req.apiKey?.id || req.apiKey?.keyId || 'anonymous';
+  recordLegacyPathUsage(apiKeyId, req.path);
+  log.warn('DEPRECATION', 'Legacy unversioned API path used', {
+    path: req.path,
+    method: req.method,
+    apiKeyId,
+    successor: `/api/v1${req.path}`,
+    sunset: LEGACY_SUNSET,
+  });
+  res.set('Deprecation', 'true');
+  res.set('Sunset', LEGACY_SUNSET);
+  res.set('Link', `</api/v1${req.path}>; rel="successor-version"`);
+  return res.redirect(308, `/api/v1${req.url}`);
+}
 
 /**
  * Walk an Express Router's stack and register every route's methods + path
@@ -159,6 +225,9 @@ function mountRoutes(app, services = {}) {
     serviceAccountBalanceMonitor,
   } = services;
 
+  // Every replica registers the same inbound webhook sources from config (#1786).
+  require('../middleware/inboundWebhookVerification').registerWebhookSourcesFromConfig();
+
   // Network route needs a service reference injected at mount time
   const { router: networkRoutes, setService: setNetworkService } = require('../routes/network');
   if (networkStatusService) setNetworkService(networkStatusService);
@@ -173,7 +242,7 @@ function mountRoutes(app, services = {}) {
   // Network routes require separate injection
   apiV1.use('/network', networkRoutes);
 
-  // Corporate matching router
+  // Corporate matching member endpoints (admin + v2 routers live in the same module)
   apiV1.use('/', require('../routes/corporateMatching'));
 
   // Federation lookup (has named export)
@@ -225,9 +294,10 @@ function mountRoutes(app, services = {}) {
   // Additive: /api/v1 above is untouched for backward compatibility.
   app.use('/api/v2', require('../routes/v2'));
 
-  // Payment channels were introduced as an unversioned API; keep that path
-  // available for existing clients while also exposing the versioned route.
-  app.use('/channels', require('../routes/channels'));
+  // Payment channels were introduced as an unversioned API (Issue #1803).
+  // The legacy /channels mount is handled by the deprecation redirect below;
+  // the versioned router is mounted under /api/v1 with the same auth and
+  // rate-limiting middleware as the rest of the versioned API.
   app.use('/exports', require('../routes/exports'));
 
   // Stellar federation protocol server (SEP-0002).
@@ -249,28 +319,15 @@ function mountRoutes(app, services = {}) {
     log.warn('ROUTES', 'GraphQL router could not be mounted', { error: err.message });
   }
 
-  // ── Deprecation redirects for unversioned paths (Issue #738) ─────────────────
+  // ── Deprecation redirects for unversioned paths (Issues #738, #1802, #1803) ──
   app.use((req, res, next) => {
     const matchesLegacy = UNVERSIONED_PATHS.some(p => req.path === p || req.path.startsWith(p + '/'));
     if (!matchesLegacy) return next();
-    res.set('Deprecation', 'true');
-    res.set('Link', `</api/v1${req.path}>; rel="successor-version"`);
-    res.set('Sunset', 'Sat, 01 Jan 2027 00:00:00 GMT');
-    return res.redirect(308, `/api/v1${req.url}`);
+    return legacyRedirect(req, res);
   });
 
-  // ── SEP-0010 Stellar TOML ─────────────────────────────────────────────────
-  app.get('/.well-known/stellar.toml', (req, res) => {
-    const host = req.get('host') || 'localhost';
-    const scheme = req.protocol || 'https';
-    const authServer = `${scheme}://${host}/auth`;
-    const signingKey = process.env.SERVICE_SIGNING_KEY || process.env.SERVICE_SECRET_KEY || process.env.STELLAR_SECRET || '';
-    const tomlContents = ['VERSION = "1.0.0"', `AUTH_SERVER = "${authServer}"`];
-    if (signingKey) {
-      tomlContents.push(`SIGNING_KEY = "${StellarSdk.Keypair.fromSecret(signingKey).publicKey()}"`);
-    }
-    res.type('text/plain').send(tomlContents.join('\n'));
-  });
+  // GET /.well-known/stellar.toml (federation + SEP-0010 hints) is served by
+  // routes/federation.js, mounted above.
 
   // ── OpenAPI / Swagger UI (Issue #634, #740) ───────────────────────────────
   try {
@@ -325,9 +382,14 @@ function mountRoutes(app, services = {}) {
     }
   });
 
+  // Full dependency health check — for humans and monitoring dashboards.
+  // Rate-limited to protect the (expensive) dependency checks.
   app.get('/api/v1/health', healthCheckRateLimiter, healthHandler);
   app.get('/health', healthCheckRateLimiter, healthHandler);
 
+  // Liveness probe — process-only, no dependency checks, never rate-limited.
+  // Used by container HEALTHCHECK and Kubernetes liveness probes so that a
+  // dependency outage cannot cause healthy containers to be restarted.
   const liveHandler = (req, res) => res.status(200).json(HealthCheckService.getLiveness());
 
   const readyHandler = asyncHandler(async (req, res) => {
@@ -367,6 +429,8 @@ function mountRoutes(app, services = {}) {
     }
   });
 
+  // Probe endpoints are intentionally NOT wrapped in healthCheckRateLimiter:
+  // a rate-limited probe would report a healthy container as failing.
   app.get('/health/live', liveHandler);
   app.get('/api/v1/health/live', liveHandler);
 
@@ -421,7 +485,6 @@ function mountRoutes(app, services = {}) {
   }
 
   app.use('/admin/totp', requireApiKey, require('../routes/admin/totp'));
-  app.use('/admin/inspect/xdr', rbac.requireAdmin(), require('../routes/admin/inspect'));
   
   // Audit logs — #796: mandatory pagination, default 50, max 500
   const AUDIT_LOG_DEFAULT_LIMIT = 50;
@@ -524,10 +587,9 @@ function mountRoutes(app, services = {}) {
 
   // ── 404 & error handlers (must be last) ──────────────────────────────────
   // ── Optional changelog endpoint (ENABLE_CHANGELOG_ENDPOINT=true) ───────────
-  if (process.env.ENABLE_CHANGELOG_ENDPOINT === 'true') {
+  if (require('../config/env').readEnv('ENABLE_CHANGELOG_ENDPOINT')) {
     const changelogRoutes = require('../routes/changelog');
     app.use('/api/v1/changelog', changelogRoutes);
-    app.get('/api/v1/changelog', (req, res, next) => next()); // ensure GET / is handled
   }
 
   // ── Method registry population ────────────────────────────────────────────
@@ -554,6 +616,9 @@ function mountRoutes(app, services = {}) {
     }
   }
 
+  // Fail startup if the same method + path is defined twice (issue #1779).
+  assertNoDuplicateRoutes();
+
   // ── 405 / OPTIONS pipeline ────────────────────────────────────────────────
   // optionsHandler: returns 200 + Allow for OPTIONS on known routes
   // methodNotAllowedHandler: returns 405 + Allow for wrong methods on known routes
@@ -564,4 +629,12 @@ function mountRoutes(app, services = {}) {
   app.use(errorHandler);
 }
 
-module.exports = { mountRoutes, V1_ROUTES, ADMIN_ROUTES, UNVERSIONED_PATHS };
+module.exports = {
+  mountRoutes,
+  V1_ROUTES,
+  ADMIN_ROUTES,
+  UNVERSIONED_PATHS,
+  LEGACY_SUNSET,
+  legacyRedirect,
+  getLegacyPathMetrics,
+};

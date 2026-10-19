@@ -18,6 +18,7 @@ const { verify: verifySignature } = require("../utils/requestSigner");
 const { isIpAllowed } = require("../utils/ipAllowlist");
 const { defaultStore: nonceStore } = require("../utils/nonceStore");
 const { safeEqual } = require("../utils/safeEqual");
+const crypto = require("crypto");
 const WebhookService = require("../services/WebhookService");
 
 /**
@@ -25,6 +26,60 @@ const WebhookService = require("../services/WebhookService");
  * Uses security configuration for API keys with safe defaults
  */
 const legacyKeys = securityConfig.API_KEYS || [];
+
+/**
+ * Short-TTL cache for API key validation results.
+ *
+ * Listing donations is the most frequent read path, and re-querying the
+ * api_keys table on every request was a measurable contributor to the
+ * list-donations p95 regression (see issue #1796). Validation results are
+ * cached for a short window so repeated requests with the same key avoid the
+ * DB round-trip while revocation/rotation still takes effect quickly.
+ *
+ * The cache stores the keyed hash of the raw key (never the raw key itself)
+ * and is bounded in size to avoid unbounded memory growth.
+ */
+const API_KEY_CACHE_TTL_MS = Number(
+  process.env.API_KEY_CACHE_TTL_MS || 30_000,
+);
+const API_KEY_CACHE_MAX_ENTRIES = Number(
+  process.env.API_KEY_CACHE_MAX_ENTRIES || 5_000,
+);
+
+const apiKeyCache = new Map();
+
+const hashApiKey = (apiKey) =>
+  crypto.createHash("sha256").update(apiKey).digest("hex");
+
+const getCachedKeyInfo = (apiKey) => {
+  if (API_KEY_CACHE_TTL_MS <= 0) return undefined;
+  const cacheKey = hashApiKey(apiKey);
+  const entry = apiKeyCache.get(cacheKey);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    apiKeyCache.delete(cacheKey);
+    return undefined;
+  }
+  return entry.keyInfo;
+};
+
+const setCachedKeyInfo = (apiKey, keyInfo) => {
+  if (API_KEY_CACHE_TTL_MS <= 0) return;
+  const cacheKey = hashApiKey(apiKey);
+  if (apiKeyCache.size >= API_KEY_CACHE_MAX_ENTRIES) {
+    // Evict the oldest entry (Map preserves insertion order).
+    const oldest = apiKeyCache.keys().next().value;
+    if (oldest !== undefined) apiKeyCache.delete(oldest);
+  }
+  apiKeyCache.set(cacheKey, {
+    keyInfo,
+    expiresAt: Date.now() + API_KEY_CACHE_TTL_MS,
+  });
+};
+
+const invalidateCachedKeyInfo = (apiKey) => {
+  apiKeyCache.delete(hashApiKey(apiKey));
+};
 
 /**
  * API Key Authentication Middleware
@@ -111,7 +166,15 @@ const requireApiKey = async (req, res, next) => {
 
   try {
     // Stage 1: Attempt Database-backed validation (Supports key rotation & granular roles)
-    const keyInfo = await validateKey(apiKey);
+    // Results are memoized per key for a short TTL to avoid re-querying the
+    // api_keys table on every request (see issue #1796).
+    let keyInfo = getCachedKeyInfo(apiKey);
+    if (keyInfo === undefined) {
+      keyInfo = await validateKey(apiKey);
+      if (keyInfo) {
+        setCachedKeyInfo(apiKey, keyInfo);
+      }
+    }
 
     if (keyInfo) {
       req.apiKey = keyInfo;
@@ -401,3 +464,5 @@ const requireApiKey = async (req, res, next) => {
 };
 
 module.exports = requireApiKey;
+module.exports.invalidateCachedKeyInfo = invalidateCachedKeyInfo;
+module.exports._apiKeyCache = apiKeyCache;

@@ -96,10 +96,42 @@ class HorizonPool {
       const healthyMembers = this._members.filter(m => m.healthy);
       if (healthyMembers.length === 0) {
         // All unhealthy — return first member as emergency fallback
+        if (this._members.length === 0) {
+          throw new Error('HorizonPool has no available members');
+        }
         return this._members[0].server;
       }
 
       // Round-robin over healthy members
+      this._index = (this._index + 1) % healthyMembers.length;
+      return healthyMembers[this._index % healthyMembers.length].server;
+    } finally {
+      endTimer();
+    }
+  }
+
+  /**
+   * Acquire a server for a single operation. Unlike getServer(), this never
+   * silently returns an unhealthy member: if no healthy member is available it
+   * throws so callers can abort before performing any local state writes.
+   *
+   * The returned server is only a handle; no local state is mutated here beyond
+   * pool bookkeeping (round-robin cursor / cooldown recovery).
+   *
+   * @returns {import('stellar-sdk').Horizon.Server}
+   * @throws {Error} when no healthy pool member is available
+   */
+  acquire() {
+    const endTimer = horizonPoolAcquireDuration.startTimer();
+    try {
+      this._tryRecover();
+      this._checkFailover();
+
+      const healthyMembers = this._members.filter(m => m.healthy);
+      if (healthyMembers.length === 0) {
+        throw new Error('HorizonPool has no healthy members available');
+      }
+
       this._index = (this._index + 1) % healthyMembers.length;
       return healthyMembers[this._index % healthyMembers.length].server;
     } finally {
@@ -114,15 +146,18 @@ class HorizonPool {
    */
   markUnhealthy(server) {
     const member = this._members.find(m => m.server === server);
-    if (member && member.healthy) {
+    if (!member) return;
+
+    // Track endpoint failures for failover even if the member was already
+    // unhealthy, so repeated failures on the same endpoint are counted.
+    const endpoint = this._endpointHealth[this.activeEndpointIndex];
+    endpoint.consecutiveFailures += 1;
+    endpoint.lastFailureAt = Date.now();
+
+    if (member.healthy) {
       member.healthy = false;
       member.unhealthyAt = Date.now();
-      
-      // Track endpoint failures for failover
-      const endpoint = this._endpointHealth[this.activeEndpointIndex];
-      endpoint.consecutiveFailures += 1;
-      endpoint.lastFailureAt = Date.now();
-      
+
       recordHorizonPoolCooldownEvent();
       recordHorizonPoolStatus(this.getStatus());
       log.warn('HORIZON_POOL', 'Pool member marked unhealthy', {
@@ -143,21 +178,23 @@ class HorizonPool {
     for (const member of this._members) {
       if (!member.healthy && member.unhealthyAt !== null &&
           now - member.unhealthyAt >= this.cooldownMs) {
-        // Fire-and-forget health check; re-admit optimistically, demote on failure
-        this._healthCheck(member).catch(() => {});
+        // Re-admit optimistically; demote again if the health check fails.
+        // The health check is fire-and-forget and must not throw into callers.
         member.healthy = true;
         member.unhealthyAt = null;
-        
+
         // Reset consecutive failures on successful recovery
         const endpoint = this._endpointHealth[this.activeEndpointIndex];
         endpoint.consecutiveFailures = 0;
         endpoint.lastSuccessAt = now;
-        
+
         recordHorizonPoolRecoveryEvent();
         recordHorizonPoolStatus(this.getStatus());
         log.info('HORIZON_POOL', 'Pool member re-admitted after cooldown', {
           url: member.url,
         });
+
+        this._healthCheck(member).catch(() => {});
       }
     }
   }
@@ -251,8 +288,10 @@ class HorizonPool {
   async _healthCheck(member) {
     try {
       await member.server.fetchTimebounds(10);
+      return true;
     } catch {
       this.markUnhealthy(member.server);
+      return false;
     }
   }
 
