@@ -124,7 +124,7 @@ router.post(
       }
 
       // Validate Stellar public key format using the Stellar SDK
-      const StellarSdk = require('stellar-sdk');
+      const StellarSdk = require('../../services/stellar/sdk.js');
       if (!StellarSdk.StrKey.isValidEd25519PublicKey(address)) {
         const { formatError } = require('../../utils/errors');
         return res.status(400).json(formatError('INVALID_PUBLIC_KEY', 'Invalid Stellar public key format', req.id));
@@ -373,6 +373,102 @@ router.post(
         });
       }
 
+      let rows;
+      try {
+        rows = parseCsvSync(req.file.buffer, {
+          columns: true,
+          skip_empty_lines: true,
+          trim: true,
+        });
+      } catch (parseErr) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'PARSE_ERROR', message: `CSV parse error: ${parseErr.message}` },
+        });
+      }
+
+      if (rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'EMPTY_FILE', message: 'CSV file contains no data rows' },
+        });
+      }
+
+      const maxRows = getBulkMaxRows();
+      if (rows.length > maxRows) {
+        return res.status(422).json({
+          success: false,
+          error: {
+            code: 'ROW_LIMIT_EXCEEDED',
+            message: `File contains ${rows.length} rows which exceeds the maximum of ${maxRows}.`,
+            details: { submitted: rows.length, limit: maxRows },
+          },
+        });
+      }
+
+      if (!Object.prototype.hasOwnProperty.call(rows[0], 'address')) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_HEADER',
+            message: 'CSV must have a header row with at least an "address" column',
+          },
+        });
+      }
+
+      let imported = 0;
+      let skipped = 0;
+      let failed = 0;
+      const errors = [];
+
+      const StellarSdk = require('../../services/stellar/sdk.js');
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNum = i + 2;
+        const address = (row.address || '').trim();
+
+        if (!address) {
+          failed++;
+          errors.push({ row: rowNum, address: '', reason: 'Missing address' });
+          continue;
+        }
+
+        if (!StellarSdk.StrKey.isValidEd25519PublicKey(address)) {
+          failed++;
+          errors.push({ row: rowNum, address, reason: 'Invalid Stellar public key' });
+          continue;
+        }
+
+        const existing = Wallet.getByAddress(address);
+        if (existing) {
+          skipped++;
+          continue;
+        }
+
+        try {
+          Wallet.create({
+            address,
+            label: row.label || null,
+            ownerName: row.ownerName || null,
+          });
+          imported++;
+        } catch (createErr) {
+          failed++;
+          errors.push({ row: rowNum, address, reason: createErr.message });
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: { imported, skipped, failed, errors },
+      });
+    } catch (error) {
+      next(error);
+    }
+  })
+);
+
+// ─── POST /wallets/:id/fund ──────────────────────────────────────────────
 /**
  * @openapi
  * /wallets/{id}/fund:

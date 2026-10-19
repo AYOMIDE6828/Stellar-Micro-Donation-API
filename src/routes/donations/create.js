@@ -81,7 +81,7 @@ function authenticatedCreateGuards(payloadLimit) {
  * Requires idempotency key to prevent duplicate transactions.
  * Rate limited: 10 requests per minute per IP.
  */
-router.post('/send', rotationLockMiddleware(), payloadSizeLimiter(ENDPOINT_LIMITS.singleDonation), donationRateLimiter, requireIdempotency, sendDonationSchema, asyncHandler(async (req, res, next) => {
+router.post('/send', rotationLockMiddleware(), payloadSizeLimiter(ENDPOINT_LIMITS.singleDonation), donationRateLimiter, requireApiKey, checkPermission(PERMISSIONS.DONATIONS_CREATE), requireIdempotency, sendDonationSchema, asyncHandler(async (req, res, next) => {
   try {
     const { senderId, receiverId, amount, memo, campaign_id, asset } = req.body;
 
@@ -174,7 +174,7 @@ router.post('/send', rotationLockMiddleware(), payloadSizeLimiter(ENDPOINT_LIMIT
       },
     };
 
-    await storeIdempotencyResponse(req, response);
+    await storeIdempotencyResponse(req, response, { statusCode: 201 });
     res.status(201).json(response);
   } catch (error) {
     log.error('DONATION_ROUTE', 'Failed to send donation', {
@@ -283,7 +283,7 @@ async function processCustodialDonation(req, res, next) {
         transactionHash: result.stellarTxId || null,
       },
     };
-    await storeIdempotencyResponse(req, response);
+    await storeIdempotencyResponse(req, response, { statusCode: 201 });
 
     return res.status(201).json(response);
   } catch (error) {
@@ -475,7 +475,7 @@ router.post('/', rotationLockMiddleware(), payloadSizeLimiter(ENDPOINT_LIMITS.si
       }
     };
 
-    await storeIdempotencyResponse(req, response);
+    await storeIdempotencyResponse(req, response, { statusCode: 201 });
     res.status(201).json(response);
   } catch (error) {
     next(error);

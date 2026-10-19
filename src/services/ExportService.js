@@ -5,13 +5,14 @@ const db = require('../utils/database');
 const log = require('../utils/log');
 const { ValidationError, NotFoundError, ERROR_CODES } = require('../utils/errors');
 const { escapeField: csvEscape } = require('../utils/csvSerializer');
+const { getSigningSecret } = require('../utils/signingSecrets');
 
 const EXPORT_TYPES = ['donations', 'wallets', 'audit_logs'];
 const EXPORT_FORMATS = ['csv', 'json'];
 const EXPORT_RETENTION_MS = 24 * 60 * 60 * 1000;
 const SIGNED_URL_TTL_MS = 60 * 60 * 1000;
 const EXPORT_DIR = path.join(__dirname, '../../data/exports');
-const SIGNING_SECRET = process.env.EXPORT_SIGNING_SECRET || process.env.ENCRYPTION_SECRET || 'export-signing-secret';
+const SIGNING_SECRET = getSigningSecret('EXPORT_SIGNING_SECRET', ['EXPORT_SIGNING_SECRET', 'ENCRYPTION_SECRET']);
 
 /**
  * Convert records to CSV with a header row.

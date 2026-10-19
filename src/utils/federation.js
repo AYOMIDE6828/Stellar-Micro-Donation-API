@@ -4,7 +4,7 @@
  * RESPONSIBILITY: Resolve Stellar federation addresses to public keys,
  *   with in-memory caching and graceful error handling.
  * OWNER: Backend Team
- * DEPENDENCIES: stellar-sdk (Federation.Server), log
+ * DEPENDENCIES: @stellar/stellar-sdk (Federation.Server), log
  *
  * Federation address format: <name>*<domain>  e.g. alice*example.com
  * Resolution flow:
@@ -16,7 +16,7 @@
 
 'use strict';
 
-const { Federation } = require('stellar-sdk');
+const { Federation } = require('../services/stellar/sdk.js');
 const log = require('./log');
 const { assertSafeOutboundUrl } = require('./ssrf');
 

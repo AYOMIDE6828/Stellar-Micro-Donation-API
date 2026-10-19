@@ -15,7 +15,6 @@ const isValidAmount = money.isValidAmount || money.validateAmount || money.isVal
 const MAX_INT64 = 9223372036854775807n;
 const ONE_STROOP = 1n;
 const STROOPS_PER_XLM = 10000000n;
-=======
 
 describe('Advanced Failure Scenarios', () => {
   let stellarService;

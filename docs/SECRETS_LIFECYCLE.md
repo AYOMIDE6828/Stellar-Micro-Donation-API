@@ -149,6 +149,28 @@ The startup check (`src/utils/startupChecks.js`) rejects example or placeholder 
 
 ---
 
+## JWT_SIGNING_SECRET
+
+Signs access tokens (HS256). It is independent of `ENCRYPTION_KEY`, so rotating the data
+encryption key does not invalidate sessions, and a leaked data key cannot forge tokens (#1873).
+
+### Provisioning
+
+- Generate at least 32 random characters, for example `openssl rand -hex 32`.
+- Required when `NODE_ENV` is `production` or `staging`. Startup checks fail without it.
+- In development and test a random per-process secret is generated. Tokens do not survive a restart.
+
+### Rotation
+
+1. Set `JWT_SIGNING_SECRET_PREVIOUS` to the current secret.
+2. Set `JWT_SIGNING_SECRET` to the new secret and restart.
+3. New tokens carry the new `kid` header. Tokens signed by the previous key still verify.
+4. After the longest access-token lifetime (15 minutes), remove `JWT_SIGNING_SECRET_PREVIOUS`.
+
+Each token's `kid` is a one-way hash of its signing key, so tokens identify the key without revealing it.
+
+---
+
 ## Migration Path: env-var → Secrets Manager
 
 1. Store `ENCRYPTION_KEY` in AWS Secrets Manager (or equivalent).

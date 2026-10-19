@@ -18,7 +18,7 @@ const path = require('path');
 const MIGRATIONS = [
   '001_initial_schema',
   '006_social_recovery',
-  '045_recovery_guardian_notifications',
+  '054_recovery_guardian_notifications',
 ];
 
 const GUARDIAN_A = 'GAMIGRATIONGUARDIANAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';

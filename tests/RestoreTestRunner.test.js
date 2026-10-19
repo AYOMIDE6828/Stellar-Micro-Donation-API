@@ -3,7 +3,7 @@
 /**
  * Tests: src/services/RestoreTestRunner.js
  *
- * All external dependencies (node-cron, BackupService, logger) are mocked so
+ * All external dependencies (timerRegistry, BackupService, logger) are mocked so
  * these tests run without any real filesystem, SQLite, or scheduler activity.
  *
  * Scenarios covered:
@@ -24,18 +24,17 @@ jest.mock('../src/utils/log', () => ({
   debug: jest.fn(),
 }));
 
-// node-cron: give us full control over the scheduled task object.
+// Scheduling goes through timerRegistry.scheduleCron: give us full control over the task object.
 const mockCronTask = {
   stop:     jest.fn(),
   destroy:  jest.fn(),
   nextDate: jest.fn(() => new Date('2025-01-01T03:00:00Z')),
 };
-// node-cron is not a project dependency, so the mock must be virtual.
-jest.mock('node-cron', () => ({
-  schedule: jest.fn(() => mockCronTask),
-}), { virtual: true });
+jest.mock('../src/utils/timerRegistry', () => ({
+  scheduleCron: jest.fn(() => mockCronTask),
+}));
 
-const nodeCron = require('node-cron');
+const timerRegistry = require('../src/utils/timerRegistry');
 const RestoreTestRunner = require('../src/services/RestoreTestRunner');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

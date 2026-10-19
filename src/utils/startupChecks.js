@@ -17,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const { isValidStellarSecretKey } = require('./validators');
 const { getLegacyKeySunsetDate } = require('./legacyApiKeySunset');
+const { findMissingSigningSecrets, isStrictEnvironment } = require('./signingSecrets');
 
 const STELLAR_TIMEOUT_MS = 5000;
 
@@ -54,6 +55,25 @@ function warn(name, detail) {
 function fail(name, detail) {
   results.push({ name, status: 'fail', detail });
   print('error', `  ✖ ${name}${detail ? ': ' + detail : ''}`);
+}
+
+/**
+ * Signing secrets must be configured explicitly in production and staging (#1872).
+ * Development and test fall back to a random per-process secret, so this only fails
+ * when a strict environment would otherwise start with a missing signing secret.
+ * @returns {boolean} True when every required signing secret is present
+ */
+function checkSigningSecrets() {
+  const missing = findMissingSigningSecrets([
+    { name: 'EXPORT_SIGNING_SECRET', envVarNames: ['EXPORT_SIGNING_SECRET', 'ENCRYPTION_SECRET'] },
+    { name: 'JWT_SIGNING_SECRET', envVarNames: ['JWT_SIGNING_SECRET'] },
+  ]);
+  if (!isStrictEnvironment() || missing.length === 0) {
+    pass('Signing secrets', 'all configured');
+    return true;
+  }
+  fail('Signing secrets', `required in ${process.env.NODE_ENV}: ${missing.join(', ')}`);
+  return false;
 }
 
 /** Patterns that indicate a placeholder / example ENCRYPTION_KEY */
@@ -728,149 +748,4 @@ function checkMainnetProductionGuard() {
  * GEO_STRICT_MODE controls what happens when the MaxMind database is missing:
  *   - true  (default): fail startup — geo-blocking is a compliance control and
  *                      must not silently fail open.
- *   - false:           warn and continue; geo-blocking is inactive (fail open).
- *
- * The missing-database warning is emitted through the GEO_BLOCK logger so it
- * matches the runtime middleware log and is easy to alert on.
- */
-function checkGeoBlocking() {
-  const strictMode = process.env.GEO_STRICT_MODE !== 'false';
-  const rawBlocked = process.env.GEO_BLOCKED_COUNTRIES;
-  const blockedCountries = rawBlocked ? rawBlocked.split(',').map(s => s.trim()).filter(Boolean) : [];
-  const dbPath = process.env.MAXMIND_DB_PATH || path.join(__dirname, '../../data/GeoLite2-Country.mmdb');
-  const dbExists = fs.existsSync(dbPath);
-
-  const log = require('./log');
-  const logMissingDb = () => {
-    log.warn('GEO_BLOCK', 'MaxMind database not found', {
-      dbPath,
-      strictMode,
-      blockedCountries: blockedCountries.length,
-      behaviour: strictMode ? 'fail-closed (startup aborted)' : 'fail-open (geo-blocking inactive)',
-    });
-  };
-
-  if (blockedCountries.length === 0) {
-    pass('Geo-blocking', 'no country restrictions configured');
-    return true;
-  }
-
-  if (!dbExists) {
-    logMissingDb();
-    if (strictMode) {
-      fail(
-        'Geo-blocking',
-        `GEO_BLOCKED_COUNTRIES is configured but MaxMind database not found at "${dbPath}" ` +
-        'with GEO_STRICT_MODE=true — set MAXMIND_DB_PATH to a valid database or set GEO_STRICT_MODE=false to fail open'
-      );
-      return false;
-    }
-    warn(
-      'Geo-blocking',
-      `GEO_BLOCKED_COUNTRIES is configured but MaxMind database not found at "${dbPath}" ` +
-      '(GEO_STRICT_MODE=false; geo-blocking inactive — requests from blocked countries are NOT filtered)'
-    );
-    return true;
-  }
-
-  pass(
-    'Geo-blocking',
-    `MaxMind database found at "${dbPath}", blocking ${blockedCountries.length} country/countries ` +
-    `(GEO_STRICT_MODE=${strictMode})`
-  );
-  return true;
-}
-
-/**
- * Non-blocking DB integrity check run at startup.
- * Logs result at INFO level, or ERROR if corruption is detected.
- */
-async function runDbIntegrityCheck() {
-  const log = require('./log');
-  const startedAt = Date.now();
-  const issues = [];
-
-  try {
-    const integrityRows = await Database.query('PRAGMA integrity_check', []);
-    for (const row of integrityRows) {
-      const msg = row.integrity_check || row[Object.keys(row)[0]];
-      if (msg && msg !== 'ok') issues.push(`integrity_check: ${msg}`);
-    }
-
-    const fkRows = await Database.query('PRAGMA foreign_key_check', []);
-    for (const row of fkRows) {
-      issues.push(`foreign_key_check: table=${row.table} rowid=${row.rowid} parent=${row.parent} fkid=${row.fkid}`);
-    }
-  } catch (err) {
-    issues.push(`check_error: ${err.message}`);
-  }
-
-  const durationMs = Date.now() - startedAt;
-
-  if (issues.length === 0) {
-    log.info('STARTUP', 'Database integrity check passed', { durationMs });
-  } else {
-    log.error('STARTUP', 'Database integrity check found issues', { issues, durationMs });
-  }
-}
-
-/**
- * Run all startup checks.
- *
- * @param {object} [opts]
- * @param {boolean} [opts.exitOnFailure=false] - call process.exit(1) if any critical check fails
- * @returns {Promise<{passed: boolean, results: Array}>}
- */
-async function run({ exitOnFailure = false } = {}) {
-  print('info', '\nRunning startup checks…\n');
-
-  // CORS safety check runs first — a production misconfiguration is a hard failure
-  const corsOk = checkCorsConfig();
-  if (!corsOk && exitOnFailure) {
-    print('error', '\nStartup checks FAILED ✖ (CORS misconfiguration in production)\n');
-    process.exit(1);
-  }
-
-  const criticalResults = [
-    corsOk,
-    checkEncryptionKey(),
-    checkApiKeys(),
-    checkSecretStrength(),      // #1117
-    checkUnsafeFlags(),         // #1116
-    checkHorizonUrl(),          // #1234
-    checkDbPath(),              // #890, #1234
-    checkStellarSigningKeys(),  // #1234
-    checkNumericRanges(),       // #1234
-    checkCoRequiredFlags(),     // #1234
-    checkMainnetProductionGuard(), // #1597
-    checkGeoBlocking(),         // #1533
-    await checkDatabase(),
-    await checkDatabaseDiagnostics(), // #1483
-    await checkStellarNetwork(),
-  ];
-
-  // Non-blocking DB integrity check — log result but never fail startup
-  runDbIntegrityCheck().catch(() => {});
-
-  const passed = criticalResults.every(Boolean);
-
-  print(passed ? 'info' : 'error', `\nStartup checks ${passed ? 'passed ✔' : 'FAILED ✖'}\n`);
-
-  if (!passed && exitOnFailure) {
-    process.exit(1);
-  }
-
-  return { passed, results };
-}
-
-module.exports = { run, results, checkMainnetProductionGuard, checkGeoBlocking };
-
-// Allow running directly: `node src/utils/startupChecks.js`
-if (require.main === module) {
-  // Load .env when run standalone
-  require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
-  run({ exitOnFailure: true }).catch((err) => {
-    print('error', `Startup checks threw an unexpected error: ${err.message}`);
-    process.exit(1);
-  });
-}
+ *   - false

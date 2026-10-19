@@ -5,7 +5,7 @@
  * Cleaned up to remove unused functions and dependencies
  */
 
-const StellarSdk = require('stellar-sdk');
+const StellarSdk = require('../services/stellar/sdk.js');
 
 /**
  * Maximum donation amount in XLM.

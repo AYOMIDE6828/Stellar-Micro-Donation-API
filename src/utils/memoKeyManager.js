@@ -32,7 +32,8 @@ const { env } = require('../config/env');
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 // Relative paths resolve against the project root; absolute paths are kept as-is.
-const KEYS_STORAGE_PATH = path.resolve(__dirname, '../..', env.MEMO_KEYS_DIR);
+const PROJECT_ROOT = path.resolve(__dirname, '../..');
+const KEYS_STORAGE_PATH = path.resolve(PROJECT_ROOT, env.MEMO_KEYS_DIR);
 const KEYS_INDEX_FILE = path.join(KEYS_STORAGE_PATH, 'keys.json');
 
 const KEY_STATUS = Object.freeze({
@@ -58,10 +59,31 @@ function deriveKeyStatus(keyEntry, activeVersion) {
 // ─── Initialization ──────────────────────────────────────────────────────────
 
 /**
+ * Refuse to use a key directory inside the repository working tree when running
+ * in production. Key material stored there ships with the code, can be committed
+ * by mistake and is readable by anyone with access to the checkout.
+ * @throws {Error} When NODE_ENV=production and MEMO_KEYS_DIR resolves inside the project
+ * @returns {void}
+ */
+function assertKeysDirOutsideRepo() {
+  if (process.env.NODE_ENV !== 'production') return;
+
+  const relative = path.relative(PROJECT_ROOT, KEYS_STORAGE_PATH);
+  const insideRepo = relative === '' || (relative.split(path.sep)[0] !== '..' && !path.isAbsolute(relative));
+  if (insideRepo) {
+    throw new Error(
+      `MEMO_KEYS_DIR (${KEYS_STORAGE_PATH}) must be outside the repository in production. ` +
+      'Point MEMO_KEYS_DIR at a path on a secret volume.'
+    );
+  }
+}
+
+/**
  * Ensure the keys storage directory exists.
  * @returns {void}
  */
 function ensureKeysDir() {
+  assertKeysDirOutsideRepo();
   if (!fs.existsSync(KEYS_STORAGE_PATH)) {
     fs.mkdirSync(KEYS_STORAGE_PATH, { recursive: true });
   }
