@@ -43,6 +43,18 @@ const {
 } = require('../utils/stellarAsset');
 const donationEvents = require('../events/donationEvents');
 const Cache = require('../utils/cache');
+const crypto = require('crypto');
+
+/**
+ * Build the 32-byte hex hash memo used on refund transactions.
+ * Hex-encoded sha256 of the refund reference, so it always fits Stellar's memo limit.
+ *
+ * @param {string} donationId
+ * @returns {string} 64-character hex digest
+ */
+function refundMemoHash(donationId) {
+  return crypto.createHash('sha256').update(`REFUND:${donationId}`).digest('hex');
+}
 
 const DEFAULT_DESTINATION_ASSET = {
   type: 'native',
@@ -2497,11 +2509,15 @@ class DonationService {
 
     let reverseResult;
     try {
+      // Stellar text memos are capped at 28 bytes, so a "REFUND:<uuid>" text
+      // memo always overflows. Use a 32-byte hash memo instead: reconciliation
+      // can recompute sha256('REFUND:' + donationId) to match the refund.
       reverseResult = await this.stellarService.sendDonation({
         sourceSecret: secret,
         destinationPublic: donation.donor,
         amount: donation.amount,
-        memo: `REFUND:${donationId}`
+        memo: refundMemoHash(donationId),
+        memoType: 'hash'
       });
     } catch (stellarErr) {
       await Database.run(`UPDATE refunds SET status = 'failed' WHERE id = ?`, [pendingRecord.id]);
