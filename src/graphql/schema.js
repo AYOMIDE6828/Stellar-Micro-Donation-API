@@ -15,6 +15,7 @@ const {
   GraphQLString,
   GraphQLFloat,
   GraphQLInt,
+  GraphQLID,
   GraphQLBoolean,
   GraphQLList,
   GraphQLNonNull,
@@ -75,7 +76,7 @@ function assertPermission(context, permission) {
 const DonationType = new GraphQLObjectType({
   name: 'Donation',
   fields: () => ({
-    id: { type: GraphQLInt },
+    id: { type: GraphQLID },
     senderId: { type: GraphQLInt },
     receiverId: { type: GraphQLInt },
     amount: { type: GraphQLFloat },
@@ -248,15 +249,15 @@ function buildQueryType({ donationService, walletService, statsService }) {
        * Fetch a single donation by ID.
        * @param {object} _ - Parent (unused)
        * @param {object} args
-       * @param {number} args.id - Donation ID
+       * @param {string|number} args.id - Donation ID (UUID or legacy integer, serialized as ID)
        * @returns {Promise<object>} Donation record
        */
       donation: {
         type: DonationType,
-        args: { id: { type: new GraphQLNonNull(GraphQLInt) } },
+        args: { id: { type: new GraphQLNonNull(GraphQLID) } },
         resolve: (_, { id }, context) => {
           assertPermission(context, 'donations:read');
-          return donationService.getDonationById(id);
+          return donationService.getDonationById(String(id));
         },
       },
 

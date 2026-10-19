@@ -52,7 +52,7 @@ const mockWallets = [
 const donationService = {
   getAllDonations: jest.fn(() => mockDonations),
   getDonationsPage: jest.fn(({ limit, offset }) => mockDonations.slice(offset, offset + limit)),
-  getDonationById: jest.fn((id) => mockDonations.find((d) => d.id === id) ?? null),
+  getDonationById: jest.fn((id) => mockDonations.find((d) => String(d.id) === String(id)) ?? null),
   getRecentDonations: jest.fn((limit) => mockDonations.slice(0, limit)),
   sendCustodialDonation: jest.fn(async ({ amount }) => ({ id: 99, amount, stellarTxId: 'mock-tx', status: 'pending', timestamp: new Date().toISOString() })),
   updateDonationStatus: jest.fn((id, status) => {
@@ -122,19 +122,19 @@ describe('GraphQL — Queries', () => {
     const result = await run('{ donations { id amount status } }');
     expect(result.errors).toBeUndefined();
     expect(result.data.donations).toHaveLength(2);
-    expect(result.data.donations[0].id).toBe(1);
+    expect(result.data.donations[0].id).toBe('1');
     expect(donationService.getDonationsPage).toHaveBeenCalledWith({ limit: 20, offset: 0 });
   });
 
   test('donation query returns a single donation by id', async () => {
-    const result = await run('query($id: Int!) { donation(id: $id) { id memo } }', { id: 1 });
+    const result = await run('query($id: ID!) { donation(id: $id) { id memo } }', { id: 1 });
     expect(result.errors).toBeUndefined();
-    expect(result.data.donation.id).toBe(1);
+    expect(result.data.donation.id).toBe('1');
     expect(result.data.donation.memo).toBe('test');
   });
 
   test('donation query returns null for unknown id', async () => {
-    const result = await run('query($id: Int!) { donation(id: $id) { id } }', { id: 999 });
+    const result = await run('query($id: ID!) { donation(id: $id) { id } }', { id: 999 });
     expect(result.errors).toBeUndefined();
     expect(result.data.donation).toBeNull();
   });
@@ -503,8 +503,8 @@ describe('GraphQL — Error handling', () => {
 
   test('invalid variable type returns type error', async () => {
     const result = await run(
-      'query($id: Int!) { donation(id: $id) { id } }',
-      { id: 'not-an-int' }
+      'query($id: ID!) { donation(id: $id) { id } }',
+      { id: { nested: true } }
     );
     expect(result.errors).toBeDefined();
   });
