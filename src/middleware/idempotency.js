@@ -54,6 +54,11 @@ async function requireIdempotency(req, res, next) {
     const existing = await IdempotencyService.get(idempotencyKey, apiKeyId);
 
     if (existing) {
+      // Issue #1870: a reused key with a different body is a client bug, not a replay
+      if (existing.requestHash !== IdempotencyService.generateRequestHash(req.body)) {
+        log.warn('IDEMPOTENCY', 'Idempotency key reused with different payload', { idempotencyKey, apiKeyId });
+        return sendKeyReused(res);
+      }
       log.info('IDEMPOTENCY', 'Returning cached response', { idempotencyKey, apiKeyId });
       res.setHeader('X-Idempotency-Replayed', 'true');
       return res.status(200).json({
@@ -95,6 +100,9 @@ async function requireIdempotency(req, res, next) {
       // It completed while we were checking — return the completed response
       const completed = await IdempotencyService.get(idempotencyKey, apiKeyId);
       if (completed) {
+        if (completed.requestHash !== requestHash) {
+          return sendKeyReused(res);
+        }
         res.setHeader('X-Idempotency-Replayed', 'true');
         return res.status(200).json({
           ...completed.response,
@@ -131,6 +139,23 @@ async function requireIdempotency(req, res, next) {
   } catch (error) {
     next(error);
   }
+}
+
+/**
+ * Issue #1870: Rejects a key that was previously used with a different request body.
+ * Mirrors the IETF Idempotency-Key draft: 422 surfaces client bugs instead of
+ * silently replaying a response for a different operation.
+ * @param {object} res - Express response
+ * @returns {object} Express response
+ */
+function sendKeyReused(res) {
+  return res.status(422).json({
+    success: false,
+    error: {
+      code: 'IDEMPOTENCY_KEY_REUSED',
+      message: 'This Idempotency-Key was already used with a different request body.'
+    }
+  });
 }
 
 /**
@@ -207,7 +232,13 @@ async function conditionalIdempotency(req, res, next) {
   try {
     const apiKeyId = req.apiKey?.id || null;
     const existing = await IdempotencyService.get(idempotencyKey, apiKeyId);
+    const requestHash = IdempotencyService.generateRequestHash(req.body);
     if (existing) {
+      // Issue #1870: a reused key with a different body is a client bug, not a replay
+      if (existing.requestHash !== requestHash) {
+        log.warn('IDEMPOTENCY', 'Idempotency key reused with different payload', { idempotencyKey, apiKeyId });
+        return sendKeyReused(res);
+      }
       log.info('IDEMPOTENCY', 'Returning cached response', { idempotencyKey, apiKeyId });
       res.setHeader('X-Idempotency-Replayed', 'true');
       return res.status(200).json({
@@ -216,7 +247,6 @@ async function conditionalIdempotency(req, res, next) {
         _originalTimestamp: existing.createdAt,
       });
     }
-    const requestHash = IdempotencyService.generateRequestHash(req.body);
     req.idempotency = { key: idempotencyKey, hash: requestHash, isNew: true, apiKeyId };
     next();
   } catch (error) {
