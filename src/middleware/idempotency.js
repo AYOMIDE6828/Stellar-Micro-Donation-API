@@ -14,6 +14,55 @@ const IdempotencyService = require('../services/IdempotencyService');
 const { ValidationError } = require('../utils/errors');
 const log = require('../utils/log');
 
+// Marks a stored response that also carries the original status and headers (#1871).
+// Records written before this envelope existed hold a bare body and replay as 200.
+const STORED_ENVELOPE_VERSION = 2;
+
+/**
+ * Issue #1871: Namespace used to scope idempotency records.
+ * API-key callers keep their numeric key id. Every other authenticated principal
+ * (JWT, DB and legacy keys set req.user) is namespaced by its user id so that
+ * two principals choosing the same key never see each other's stored responses.
+ * @param {object} req - Express request
+ * @returns {number|string|null}
+ */
+function resolveScopeId(req) {
+  if (req.apiKey?.id) return req.apiKey.id;
+  if (req.user?.id) return `principal:${req.user.id}`;
+  return null;
+}
+
+/**
+ * Unwraps a stored record into the status, headers and body to replay.
+ * @param {object} response - Parsed response column
+ * @returns {{ status: number, headers: object, body: object }}
+ */
+function unwrapStoredResponse(response) {
+  if (response && response.__idempotentEnvelope === STORED_ENVELOPE_VERSION) {
+    return { status: response.status, headers: response.headers || {}, body: response.body };
+  }
+  return { status: 200, headers: {}, body: response };
+}
+
+/**
+ * Replays a completed record with the status code and headers of the original response.
+ * @param {object} res - Express response
+ * @param {object} record - Record returned by IdempotencyService.get
+ * @returns {object} Express response
+ */
+function sendReplay(res, record) {
+  const { status, headers, body } = unwrapStoredResponse(record.response);
+  res.setHeader('X-Idempotency-Replayed', 'true');
+  for (const [name, value] of Object.entries(headers)) {
+    if (value !== undefined && value !== null) res.setHeader(name, value);
+  }
+  return res.status(status).json({
+    ...body,
+    _idempotent: true,
+    _originalTimestamp: record.createdAt
+  });
+}
+
 /**
  * Required Idempotency Check
  * Intent: Force the client to provide a unique key for write operations.
@@ -48,8 +97,8 @@ async function requireIdempotency(req, res, next) {
       );
     }
 
-    // Issue #891: Get API key ID for scoping
-    const apiKeyId = req.apiKey?.id || null;
+    // Issue #891 / #1871: Scope by API key id or authenticated principal
+    const apiKeyId = resolveScopeId(req);
 
     const existing = await IdempotencyService.get(idempotencyKey, apiKeyId);
 
@@ -60,12 +109,7 @@ async function requireIdempotency(req, res, next) {
         return sendKeyReused(res);
       }
       log.info('IDEMPOTENCY', 'Returning cached response', { idempotencyKey, apiKeyId });
-      res.setHeader('X-Idempotency-Replayed', 'true');
-      return res.status(200).json({
-        ...existing.response,
-        _idempotent: true,
-        _originalTimestamp: existing.createdAt
-      });
+      return sendReplay(res, existing);
     }
 
     // Check if the same key is currently in-flight on another request
@@ -103,12 +147,7 @@ async function requireIdempotency(req, res, next) {
         if (completed.requestHash !== requestHash) {
           return sendKeyReused(res);
         }
-        res.setHeader('X-Idempotency-Replayed', 'true');
-        return res.status(200).json({
-          ...completed.response,
-          _idempotent: true,
-          _originalTimestamp: completed.createdAt
-        });
+        return sendReplay(res, completed);
       }
     }
 
@@ -163,16 +202,27 @@ function sendKeyReused(res) {
  * Intent: Store the successful outcome of an operation so it can be replayed later.
  * Flow: Called by the controller after successful DB/Stellar operations -> Persists result to the idempotency table.
  * Issue #891: Include apiKeyId in storage for scoping
+ * Issue #1871: Store the original status code, headers and request id so replays match.
+ * @param {object} req - Express request
+ * @param {object} response - Response body to replay
+ * @param {{ statusCode?: number, headers?: object }} [options]
  */
-async function storeIdempotencyResponse(req, response) {
+async function storeIdempotencyResponse(req, response, { statusCode = 200, headers = {} } = {}) {
   if (!req.idempotency || !req.idempotency.isNew) {
     return;
   }
 
+  const envelope = {
+    __idempotentEnvelope: STORED_ENVELOPE_VERSION,
+    status: statusCode,
+    headers: { ...(req.id ? { 'X-Request-Id': req.id } : {}), ...headers },
+    body: response
+  };
+
   try {
     await IdempotencyService.complete(
       req.idempotency.key,
-      response,
+      envelope,
       req.idempotency.apiKeyId,
       req.user?.id
     );
@@ -230,7 +280,7 @@ async function conditionalIdempotency(req, res, next) {
   }
 
   try {
-    const apiKeyId = req.apiKey?.id || null;
+    const apiKeyId = resolveScopeId(req);
     const existing = await IdempotencyService.get(idempotencyKey, apiKeyId);
     const requestHash = IdempotencyService.generateRequestHash(req.body);
     if (existing) {
@@ -240,12 +290,7 @@ async function conditionalIdempotency(req, res, next) {
         return sendKeyReused(res);
       }
       log.info('IDEMPOTENCY', 'Returning cached response', { idempotencyKey, apiKeyId });
-      res.setHeader('X-Idempotency-Replayed', 'true');
-      return res.status(200).json({
-        ...existing.response,
-        _idempotent: true,
-        _originalTimestamp: existing.createdAt,
-      });
+      return sendReplay(res, existing);
     }
     req.idempotency = { key: idempotencyKey, hash: requestHash, isNew: true, apiKeyId };
     next();
