@@ -10,7 +10,7 @@
 
 const express = require('express');
 const router = express.Router();
-const StellarSdk = require('stellar-sdk');
+const StellarSdk = require('../../services/stellar/sdk.js');
 const { checkPermission } = require('../../middleware/rbac');
 const { PERMISSIONS } = require('../../utils/permissions');
 const { validateSchema } = require('../../middleware/schemaValidation');

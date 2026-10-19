@@ -9,7 +9,7 @@
  * Supports automatic failover to fallback endpoints when the primary becomes unhealthy.
  */
 
-const StellarSdk = require('stellar-sdk');
+const StellarSdk = require('./stellar/sdk.js');
 const log = require('../utils/log');
 const {
   horizonPoolAcquireDuration,
@@ -85,7 +85,7 @@ class HorizonPool {
    * If all members are unhealthy, attempt to recover any that have cooled down,
    * then return the first recoverable one; as a last resort return any member.
    *
-   * @returns {import('stellar-sdk').Horizon.Server}
+   * @returns {import('@stellar/stellar-sdk').Horizon.Server}
    */
   getServer() {
     const endTimer = horizonPoolAcquireDuration.startTimer();
@@ -142,7 +142,7 @@ class HorizonPool {
   /**
    * Mark the given server as unhealthy (remove from rotation for cooldownMs).
    * Also tracks consecutive failures for failover logic.
-   * @param {import('stellar-sdk').Horizon.Server} server
+   * @param {import('@stellar/stellar-sdk').Horizon.Server} server
    */
   markUnhealthy(server) {
     const member = this._members.find(m => m.server === server);
@@ -283,7 +283,7 @@ class HorizonPool {
   /**
    * Lightweight health check — hits the root endpoint (GET /).
    * @private
-   * @param {{ server: import('stellar-sdk').Horizon.Server }} member
+   * @param {{ server: import('@stellar/stellar-sdk').Horizon.Server }} member
    */
   async _healthCheck(member) {
     try {

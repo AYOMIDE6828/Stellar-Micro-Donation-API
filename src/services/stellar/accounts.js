@@ -9,7 +9,7 @@
  * - Inflation destination management
  */
 
-const StellarSdk = require('stellar-sdk');
+const StellarSdk = require('./sdk.js');
 const log = require('../../utils/log');
 const { ValidationError } = require('../../utils/errors');
 const { validateHomeDomain } = require('../../utils/homeDomain');

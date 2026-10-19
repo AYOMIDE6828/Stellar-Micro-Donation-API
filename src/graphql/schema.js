@@ -15,6 +15,7 @@ const {
   GraphQLString,
   GraphQLFloat,
   GraphQLInt,
+  GraphQLID,
   GraphQLBoolean,
   GraphQLList,
   GraphQLNonNull,
@@ -75,7 +76,7 @@ function assertPermission(context, permission) {
 const DonationType = new GraphQLObjectType({
   name: 'Donation',
   fields: () => ({
-    id: { type: GraphQLInt },
+    id: { type: GraphQLID },
     senderId: { type: GraphQLInt },
     receiverId: { type: GraphQLInt },
     amount: { type: GraphQLFloat },
@@ -235,11 +236,12 @@ function buildQueryType({ donationService, walletService, statsService }) {
           limit: { type: GraphQLInt, defaultValue: DEFAULT_PAGE_LIMIT },
           offset: { type: GraphQLInt, defaultValue: 0 },
         },
-        resolve: async (_, { limit, offset }) => {
-          const safeLimit = clampLimit(limit);
-          const safeOffset = Math.max(0, offset ?? 0);
-          const all = await donationService.getAllDonations();
-          return all.slice(safeOffset, safeOffset + safeLimit);
+        resolve: async (_, { limit, offset }, context) => {
+          assertPermission(context, 'donations:read');
+          return donationService.getDonationsPage({
+            limit: clampLimit(limit),
+            offset: Math.max(0, offset ?? 0),
+          });
         },
       },
 
@@ -247,13 +249,16 @@ function buildQueryType({ donationService, walletService, statsService }) {
        * Fetch a single donation by ID.
        * @param {object} _ - Parent (unused)
        * @param {object} args
-       * @param {number} args.id - Donation ID
+       * @param {string|number} args.id - Donation ID (UUID or legacy integer, serialized as ID)
        * @returns {Promise<object>} Donation record
        */
       donation: {
         type: DonationType,
-        args: { id: { type: new GraphQLNonNull(GraphQLInt) } },
-        resolve: (_, { id }) => donationService.getDonationById(id),
+        args: { id: { type: new GraphQLNonNull(GraphQLID) } },
+        resolve: (_, { id }, context) => {
+          assertPermission(context, 'donations:read');
+          return donationService.getDonationById(String(id));
+        },
       },
 
       /**
@@ -268,7 +273,10 @@ function buildQueryType({ donationService, walletService, statsService }) {
       recentDonations: {
         type: new GraphQLList(DonationType),
         args: { limit: { type: GraphQLInt, defaultValue: DEFAULT_PAGE_LIMIT } },
-        resolve: (_, { limit }) => donationService.getRecentDonations(clampLimit(limit)),
+        resolve: (_, { limit }, context) => {
+          assertPermission(context, 'donations:read');
+          return donationService.getRecentDonations(clampLimit(limit));
+        },
       },
 
       /**
@@ -287,11 +295,12 @@ function buildQueryType({ donationService, walletService, statsService }) {
           limit: { type: GraphQLInt, defaultValue: DEFAULT_PAGE_LIMIT },
           offset: { type: GraphQLInt, defaultValue: 0 },
         },
-        resolve: (_, { limit, offset }) => {
-          const safeLimit = clampLimit(limit);
-          const safeOffset = Math.max(0, offset ?? 0);
-          const all = walletService.getAllWallets();
-          return all.slice(safeOffset, safeOffset + safeLimit);
+        resolve: async (_, { limit, offset }, context) => {
+          assertPermission(context, 'wallets:read');
+          return walletService.getWalletsPage({
+            limit: clampLimit(limit),
+            offset: Math.max(0, offset ?? 0),
+          });
         },
       },
 
@@ -305,7 +314,10 @@ function buildQueryType({ donationService, walletService, statsService }) {
       wallet: {
         type: WalletType,
         args: { id: { type: new GraphQLNonNull(GraphQLInt) } },
-        resolve: (_, { id }) => walletService.getWalletById(id),
+        resolve: (_, { id }, context) => {
+          assertPermission(context, 'wallets:read');
+          return walletService.getWalletById(id);
+        },
       },
 
       /**
@@ -322,8 +334,10 @@ function buildQueryType({ donationService, walletService, statsService }) {
           startDate: { type: new GraphQLNonNull(GraphQLString) },
           endDate: { type: new GraphQLNonNull(GraphQLString) },
         },
-        resolve: (_, { startDate, endDate }) =>
-          statsService.getDailyStats(new Date(startDate), new Date(endDate)),
+        resolve: (_, { startDate, endDate }, context) => {
+          assertPermission(context, 'stats:read');
+          return statsService.getDailyStats(new Date(startDate), new Date(endDate));
+        },
       },
 
       /**
@@ -340,11 +354,13 @@ function buildQueryType({ donationService, walletService, statsService }) {
           startDate: { type: GraphQLString },
           endDate: { type: GraphQLString },
         },
-        resolve: (_, { startDate, endDate }) =>
-          statsService.getSummaryStats(
+        resolve: (_, { startDate, endDate }, context) => {
+          assertPermission(context, 'stats:read');
+          return statsService.getSummaryStats(
             startDate ? new Date(startDate) : null,
             endDate ? new Date(endDate) : null
-          ),
+          );
+        },
       },
     }),
   });

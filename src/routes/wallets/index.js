@@ -25,6 +25,7 @@ const { toWalletResponse, ALLOWED_WALLET_FIELDS } = require('../../utils/respons
 
 const router = express.Router();
 
+// ─── Response Sanitizer ──────────────────────────────────────────────────
 /**
  * Response sanitizer middleware applied to all wallet endpoints.
  * Ensures internal/sensitive fields are stripped from all wallet responses.

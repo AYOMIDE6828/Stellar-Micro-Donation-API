@@ -121,7 +121,7 @@ async function main() {
   // Donor/recipient are valid Stellar public keys so the write path passes
   // validation; each create uses a unique Idempotency-Key so the requests are
   // genuinely processed rather than served from the idempotency cache.
-  const StellarSdk = require('stellar-sdk');
+  const StellarSdk = require('@stellar/stellar-sdk');
   const donor = StellarSdk.Keypair.random().publicKey();
   const recipient = StellarSdk.Keypair.random().publicKey();
 

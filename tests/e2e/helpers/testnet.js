@@ -14,7 +14,7 @@
 
 'use strict';
 
-const StellarSdk = require('stellar-sdk');
+const StellarSdk = require('@stellar/stellar-sdk');
 const path = require('path');
 const StellarService = require('../../../src/services/StellarService');
 const Database = require('../../../src/utils/database');

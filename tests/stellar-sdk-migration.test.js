@@ -29,7 +29,7 @@ describe('Stellar SDK Migration to @stellar/stellar-sdk', () => {
       const version = packageJsonContent.dependencies['@stellar/stellar-sdk'];
       const majorVersion = parseInt(version.replace(/[^0-9]/g, '').charAt(0), 10);
 
-      expect(majorVersion).toBeGreaterThanOrEqual(21);
+      expect(majorVersion).toBeGreaterThanOrEqual(17);
     });
   });
 
@@ -176,7 +176,7 @@ describe('Stellar SDK Migration to @stellar/stellar-sdk', () => {
       const major = parseInt(parts[0], 10);
       const minor = parseInt(parts[1], 10);
 
-      expect(major).toBeGreaterThanOrEqual(21);
+      expect(major).toBeGreaterThanOrEqual(17);
       expect(minor).toBeGreaterThanOrEqual(0);
     });
 

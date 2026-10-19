@@ -191,7 +191,7 @@ function decodeStellarPublicKey(address) {
     throw new Error('Invalid Stellar public key: must be a G... address');
   }
   try {
-    const { StrKey } = require('stellar-sdk');
+    const { StrKey } = require('../services/stellar/sdk.js');
     return Buffer.from(StrKey.decodeEd25519PublicKey(address));
   } catch (err) {
     throw new Error(`Invalid Stellar public key: ${err.message}`);
@@ -210,7 +210,7 @@ function decodeStellarSecretKey(secret) {
     throw new Error('Invalid Stellar secret key: must be an S... key');
   }
   try {
-    const { StrKey } = require('stellar-sdk');
+    const { StrKey } = require('../services/stellar/sdk.js');
     return Buffer.from(StrKey.decodeEd25519SecretSeed(secret));
   } catch (err) {
     throw new Error(`Invalid Stellar secret key: ${err.message}`);

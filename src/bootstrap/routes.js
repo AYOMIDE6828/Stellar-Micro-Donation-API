@@ -1,30 +1,28 @@
 /**
  * Route mounting bootstrap.
  * Table-driven registration of all API and admin routes.
- * No middleware is applied here (see middleware.js).
+ * Global middleware lives in middleware.js; only mount-level guards are
+ * applied here. Handlers live in route modules, never inline.
  *
- * The ROUTE_TABLE arrays are the canonical source of truth for what paths exist;
- * a snapshot test diffs them to catch accidental additions / deletions.
+ * V1_ROUTES, ADMIN_ROUTES, UNVERSIONED_PATHS and buildEndpointTable() are the
+ * canonical source of truth for what paths exist; a snapshot test
+ * (tests/bootstrap/route-table.test.js) diffs them to catch accidental
+ * additions / deletions.
  */
 
 'use strict';
 
 const express = require('express');
-const asyncHandler = require('../utils/asyncHandler');
 const log = require('../utils/log');
 const requireApiKey = require('../middleware/apiKey');
 const rbac = require('../middleware/rbac');
 const { payloadSizeLimiter, ENDPOINT_LIMITS } = require('../middleware/payloadSizeLimiter');
 const { healthCheckRateLimiter } = require('../middleware/rateLimiter');
-const { parseCursorPaginationQuery } = require('../utils/pagination');
 const { errorHandler, notFoundHandler } = require('../middleware/errorHandler');
 const { registerMethod, clearRegistry, assertNoDuplicateRoutes } = require('../middleware/methodRegistry');
 const { optionsHandler, methodNotAllowedHandler } = require('../middleware/methodNotAllowedHandler');
-const { DEPRECATION_SUNSET } = require('../middleware/deprecation');
-const HealthCheckService = require('../services/HealthCheckService');
-const AuditLogService = require('../services/AuditLogService');
-const Database = require('../utils/database');
-const state = require('./state');
+const { createHealthHandlers } = require('../routes/health');
+const operations = require('../routes/operations');
 
 // ── Versioned API v1 routes ────────────────────────────────────────────────────
 const V1_ROUTES = [
@@ -56,6 +54,9 @@ const V1_ROUTES = [
   ['/claimable-balances',             require('../routes/claimableBalances')],
   ['/liquidity-pools',                require('../routes/liquidity-pools')],
   ['/channels',                       require('../routes/channels')],
+  ['/exchange-rates',                 require('../routes/exchangeRates')],
+  // Donation and entity export endpoints (#1596)
+  ['/exports',                        require('../routes/exports')],
   // Read-only client view of flags; management lives only in /admin/feature-flags (#1775)
   ['/feature-flags',                  require('../routes/feature-flags')],
 ];
@@ -204,6 +205,91 @@ function populateRegistry(prefix, router) {
 }
 
 /**
+ * Mount a router whose failure to load should not abort startup.
+ * Failures are logged at error level with the stack so they are visible.
+ *
+ * @param {string} name
+ * @param {Function} mount
+ */
+function mountOptional(name, mount) {
+  try {
+    mount();
+    log.info('ROUTES', `${name} mounted`);
+  } catch (err) {
+    log.error('ROUTES', `${name} could not be mounted`, { error: err.message, stack: err.stack });
+  }
+}
+
+/**
+ * Standalone endpoints (not part of a router module), declared as a table.
+ * `beforeAdminGuard` entries are registered before the /admin router-level
+ * guard; `afterAdminGuard` entries are registered after the admin routers.
+ *
+ * @param {object} services - see mountRoutes()
+ * @returns {{ beforeAdminGuard: Array<{method: string, path: string, middleware: Function[], handler: Function}>,
+ *             afterAdminGuard:  Array<{method: string, path: string, middleware: Function[], handler: Function}> }}
+ */
+function buildEndpointTable(services = {}) {
+  const { reconciliationService, transactionSyncScheduler } = services;
+  const health = createHealthHandlers(services);
+  const adminOnly = () => [rbac.requireAdmin()];
+  const adminWrite = () => [rbac.requireAdmin(), payloadSizeLimiter(ENDPOINT_LIMITS.admin)];
+
+  const beforeAdminGuard = [
+    // Full dependency health check — rate-limited to protect the dependency checks.
+    { method: 'get', path: '/api/v1/health',       middleware: [healthCheckRateLimiter], handler: health.health },
+    { method: 'get', path: '/health',              middleware: [healthCheckRateLimiter], handler: health.health },
+    // Probes are intentionally NOT rate-limited: a rate-limited probe would
+    // report a healthy container as failing.
+    { method: 'get', path: '/health/live',         middleware: [], handler: health.live },
+    { method: 'get', path: '/api/v1/health/live',  middleware: [], handler: health.live },
+    { method: 'get', path: '/health/ready',        middleware: [], handler: health.ready },
+    { method: 'get', path: '/api/v1/health/ready', middleware: [], handler: health.ready },
+
+    // Observability admin endpoints
+    { method: 'get',    path: '/abuse-signals',         middleware: adminOnly(), handler: operations.abuseSignals },
+    { method: 'get',    path: '/admin/blocked-ips',     middleware: adminOnly(), handler: operations.listBlockedIps },
+    { method: 'delete', path: '/admin/blocked-ips/:ip', middleware: adminOnly(), handler: operations.unblockIp },
+    { method: 'get',    path: '/suspicious-patterns',   middleware: adminOnly(), handler: operations.suspiciousPatterns },
+  ];
+
+  const afterAdminGuard = [
+    { method: 'get', path: '/admin/audit-logs', middleware: adminOnly(), handler: operations.auditLogs },
+  ];
+
+  if (reconciliationService) {
+    const reconcile = operations.createReconcileHandler(reconciliationService);
+    afterAdminGuard.push(
+      { method: 'post', path: '/reconcile',                    middleware: adminWrite(), handler: reconcile },
+      { method: 'post', path: '/admin/reconcile',              middleware: adminWrite(), handler: reconcile },
+      { method: 'get',  path: '/admin/orphaned-transactions',  middleware: adminOnly(),
+        handler: operations.createOrphanedTransactionsHandler(reconciliationService) },
+    );
+  }
+
+  if (transactionSyncScheduler) {
+    afterAdminGuard.push(
+      { method: 'post', path: '/admin/sync', middleware: adminWrite(),
+        handler: operations.createSyncHandler(transactionSyncScheduler) },
+    );
+  }
+
+  return { beforeAdminGuard, afterAdminGuard };
+}
+
+/**
+ * Register a list of endpoint table entries on the app.
+ *
+ * @param {import('express').Application} app
+ * @param {Array<{method: string, path: string, middleware: Function[], handler: Function}>} endpoints
+ */
+function mountEndpoints(app, endpoints) {
+  for (const { method, path, middleware, handler } of endpoints) {
+    app[method](path, ...middleware, handler);
+  }
+}
+
+/**
  * Mount all routes onto the given Express app.
  * Must be called after applyMiddleware().
  *
@@ -215,14 +301,7 @@ function populateRegistry(prefix, router) {
  * @param {object} services.transactionSyncScheduler
  */
 function mountRoutes(app, services = {}) {
-  const {
-    stellarService,
-    networkStatusService,
-    recurringDonationScheduler,
-    transactionSyncScheduler,
-    feeBumpService,
-    serviceAccountBalanceMonitor,
-  } = services;
+  const { networkStatusService, feeBumpService } = services;
 
   // Every replica registers the same inbound webhook sources from config (#1786).
   require('../middleware/inboundWebhookVerification').registerWebhookSourcesFromConfig();
@@ -257,66 +336,29 @@ function mountRoutes(app, services = {}) {
   // so this is intentionally NOT behind requireAdminTOTP() at the mount point.
   apiV1.use('/api-keys', require('../routes/auditLogExport'));
 
-  // Exchange rates
-  apiV1.get('/exchange-rates', asyncHandler(async (req, res) => {
-    try {
-      const priceOracle = require('../services/PriceOracleService');
-      const rates = await priceOracle.getRates();
-      const priceSource = typeof priceOracle.getPriceSourceStatus === 'function'
-        ? priceOracle.getPriceSourceStatus().source
-        : undefined;
-      res.json({
-        success: true,
-        data: {
-          base: 'XLM',
-          rates,
-          source: priceSource,
-          supportedCurrencies: ['XLM', ...priceOracle.SUPPORTED_CURRENCIES.map(c => c.toUpperCase())],
-          cachedAt: new Date().toISOString(),
-        },
-      });
-    } catch (err) {
-      log.error('APP', 'Failed to fetch exchange rates', { error: err.message });
-      res.status(503).json({
-        success: false,
-        error: { code: 'EXCHANGE_RATE_UNAVAILABLE', message: err.message },
-      });
-    }
-  }));
-
-  // Donation and entity export endpoints (#1596)
-  apiV1.use('/exports', require('../routes/exports'));
-
   app.use('/api/v1', apiV1);
 
   // ── /api/v2 standardized response envelope (Issue #1553) ─────────────────
   // Additive: /api/v1 above is untouched for backward compatibility.
   app.use('/api/v2', require('../routes/v2'));
 
-  // Payment channels were introduced as an unversioned API (Issue #1803).
-  // The legacy /channels mount is handled by the deprecation redirect below;
-  // the versioned router is mounted under /api/v1 with the same auth and
-  // rate-limiting middleware as the rest of the versioned API.
+  // Unversioned export endpoints (#1596); the versioned router is in V1_ROUTES.
   app.use('/exports', require('../routes/exports'));
 
   // Stellar federation protocol server (SEP-0002).
   // The versioned lookup router above is for consumers; this router serves
-  // this application's own /.well-known and /federation protocol endpoints.
+  // this application's own /.well-known and /federation protocol endpoints,
+  // including GET /.well-known/stellar.toml (federation + SEP-0010 hints).
   const { router: federationProtocolRoutes } = require('../routes/federation');
   app.use('/', federationProtocolRoutes);
 
   // ── GraphQL endpoint (Issue #1366) ────────────────────────────────────────
-  // createGraphQLRouter() was defined and exported in src/graphql/index.js but
-  // was never mounted. Mount it at /graphql so POST /graphql is reachable.
   // Auth (requireApiKey), depth-limiting, and introspection rules are all applied
   // inside the router itself.
-  try {
+  mountOptional('GraphQL HTTP endpoint (/graphql)', () => {
     const { createGraphQLRouter } = require('../graphql/index');
     app.use('/graphql', createGraphQLRouter());
-    log.info('ROUTES', 'GraphQL HTTP endpoint mounted at /graphql');
-  } catch (err) {
-    log.warn('ROUTES', 'GraphQL router could not be mounted', { error: err.message });
-  }
+  });
 
   // ── Deprecation redirects for unversioned paths (Issues #738, #1802, #1803) ──
   app.use((req, res, next) => {
@@ -325,147 +367,21 @@ function mountRoutes(app, services = {}) {
     return legacyRedirect(req, res);
   });
 
-  // GET /.well-known/stellar.toml (federation + SEP-0010 hints) is served by
-  // routes/federation.js, mounted above.
-
   // ── OpenAPI / Swagger UI (Issue #634, #740) ───────────────────────────────
-  try {
+  mountOptional('OpenAPI / Swagger UI', () => {
     const { spec, swaggerUiMiddleware, swaggerUiSetup } = require('../config/openapi');
+    const serveSpec = (req, res) => res.json(spec);
     app.use('/api/docs', swaggerUiMiddleware, swaggerUiSetup);
-    app.get('/api/openapi.json', (req, res) => res.json(spec));
+    app.get('/api/openapi.json', serveSpec);
     if (process.env.NODE_ENV !== 'production') {
       app.use('/docs', swaggerUiMiddleware, swaggerUiSetup);
-      app.get('/openapi.json', (req, res) => res.json(spec));
-    }
-  } catch (_) { /* swagger packages not installed — skip */ }
-
-  // ── Health endpoints ──────────────────────────────────────────────────────
-  const healthHandler = asyncHandler(async (req, res) => {
-    try {
-      const isAdmin = req.apiKey?.role === 'admin' || req.user?.role === 'admin';
-      const verbose = req.query.verbose === 'true' && isAdmin;
-      const isProduction = process.env.NODE_ENV === 'production';
-      const shouldMinimize = isProduction && !isAdmin;
-
-      const health = await HealthCheckService.getFullHealth(
-        stellarService,
-        networkStatusService,
-        recurringDonationScheduler,
-        verbose && !shouldMinimize
-      );
-
-      if (shouldMinimize) {
-        return res.status(health.status === 'healthy' ? 200 : 503).json({
-          status: health.status,
-          timestamp: health.timestamp,
-        });
-      }
-
-      health.stellarEnvironment = require('../config/stellar').environment || 'testnet';
-      health.stellarNetwork = require('../config/stellar').network || 'testnet';
-      health.requestId = req.id;
-      if (transactionSyncScheduler) {
-        health.transactionSync = transactionSyncScheduler.getSyncStatus();
-      }
-      if (serviceAccountBalanceMonitor) {
-        health.serviceAccountBalance = serviceAccountBalanceMonitor.getStatus();
-      }
-      return res.status(health.status === 'healthy' ? 200 : 503).json(health);
-    } catch (err) {
-      log.error('HEALTH', 'Health check failed', { error: err.message });
-      return res.status(503).json({
-        success: false,
-        status: 'unhealthy',
-        error: { code: 'HEALTH_CHECK_ERROR', message: 'Health check failed' },
-      });
+      app.get('/openapi.json', serveSpec);
     }
   });
 
-  // Full dependency health check — for humans and monitoring dashboards.
-  // Rate-limited to protect the (expensive) dependency checks.
-  app.get('/api/v1/health', healthCheckRateLimiter, healthHandler);
-  app.get('/health', healthCheckRateLimiter, healthHandler);
-
-  // Liveness probe — process-only, no dependency checks, never rate-limited.
-  // Used by container HEALTHCHECK and Kubernetes liveness probes so that a
-  // dependency outage cannot cause healthy containers to be restarted.
-  const liveHandler = (req, res) => res.status(200).json(HealthCheckService.getLiveness());
-
-  const readyHandler = asyncHandler(async (req, res) => {
-    if (state.isShuttingDown) {
-      return res.status(503).json({ status: 'not_ready', reason: 'server is shutting down' });
-    }
-    if (!state.isInitialized) {
-      const initErr = state.initializationError;
-      return res.status(503).json({
-        status: 'not_ready',
-        reason: initErr ? `initialization failed: ${initErr}` : 'server still initializing',
-      });
-    }
-    const donationStore = require('../models/transaction').getStoreStatus();
-    if (!donationStore.loaded) {
-      return res.status(503).json({
-        status: 'not_ready',
-        reason: donationStore.error
-          ? `donation store failed to load: ${donationStore.error}`
-          : 'donation store not loaded',
-      });
-    }
-    try {
-      const readiness = await HealthCheckService.getReadiness(
-        stellarService, networkStatusService, recurringDonationScheduler
-      );
-      if (readiness.ready) {
-        return res.status(200).json({ status: 'ready', timestamp: readiness.timestamp });
-      }
-      const reason = readiness.status === 'unhealthy'
-        ? 'one or more critical dependencies are unavailable'
-        : `service is ${readiness.status}`;
-      return res.status(503).json({ status: 'not_ready', reason, timestamp: readiness.timestamp });
-    } catch (err) {
-      log.error('HEALTH', 'Readiness check failed', { error: err.message });
-      return res.status(503).json({ status: 'not_ready', reason: 'readiness check failed' });
-    }
-  });
-
-  // Probe endpoints are intentionally NOT wrapped in healthCheckRateLimiter:
-  // a rate-limited probe would report a healthy container as failing.
-  app.get('/health/live', liveHandler);
-  app.get('/api/v1/health/live', liveHandler);
-
-  app.get('/health/ready', readyHandler);
-  app.get('/api/v1/health/ready', readyHandler);
-
-  // ── Observability admin endpoints ─────────────────────────────────────────
-  app.get('/abuse-signals', rbac.requireAdmin(), (req, res) => {
-    const abuseDetector = require('../utils/abuseDetector');
-    res.json({ success: true, data: abuseDetector.getStats(), timestamp: new Date().toISOString() });
-  });
-
-  app.get('/admin/blocked-ips', rbac.requireAdmin(), (req, res) => {
-    const abuseDetectionService = require('../services/AbuseDetectionService');
-    res.json({ success: true, data: abuseDetectionService.getBlocked(), timestamp: new Date().toISOString() });
-  });
-
-  app.delete('/admin/blocked-ips/:ip', rbac.requireAdmin(), (req, res) => {
-    const abuseDetectionService = require('../services/AbuseDetectionService');
-    const ip = req.params.ip;
-    const unblocked = abuseDetectionService.unblock(ip);
-    if (unblocked) {
-      res.json({ success: true, message: 'IP unblocked', ip, timestamp: new Date().toISOString() });
-    } else {
-      res.status(404).json({
-        success: false,
-        error: { code: 'IP_NOT_BLOCKED', message: 'IP not currently blocked' },
-        timestamp: new Date().toISOString(),
-      });
-    }
-  });
-
-  app.get('/suspicious-patterns', rbac.requireAdmin(), (req, res) => {
-    const suspiciousPatternDetector = require('../utils/suspiciousPatternDetector');
-    res.json({ success: true, data: suspiciousPatternDetector.getMetrics(), timestamp: new Date().toISOString() });
-  });
+  // ── Health, probe and observability endpoints ─────────────────────────────
+  const endpoints = buildEndpointTable(services);
+  mountEndpoints(app, endpoints.beforeAdminGuard);
 
   // ── Admin table-driven routes ─────────────────────────────────────────────
   // Apply requireApiKey + requireAdmin (which includes TOTP) to the entire
@@ -477,118 +393,23 @@ function mountRoutes(app, services = {}) {
     app.use(path, router);
   }
 
-  const effectiveFeeBumpService = feeBumpService || (require('../config/serviceContainer').getFeeBumpService ? require('../config/serviceContainer').getFeeBumpService() : null);
+  const serviceContainer = require('../config/serviceContainer');
+  const effectiveFeeBumpService = feeBumpService
+    || (typeof serviceContainer.getFeeBumpService === 'function' ? serviceContainer.getFeeBumpService() : null);
   if (effectiveFeeBumpService) {
     const createFeeBumpRouter = require('../routes/admin/feeBump');
     app.use('/admin/transactions', createFeeBumpRouter(effectiveFeeBumpService));
   }
 
-  app.use('/admin/totp', requireApiKey, require('../routes/admin/totp'));
-  
-  // Audit logs — #796: mandatory pagination, default 50, max 500
-  const AUDIT_LOG_DEFAULT_LIMIT = 50;
-  const AUDIT_LOG_MAX_LIMIT = 500;
+  // Already behind the /admin guard above (requireApiKey + requireAdmin).
+  app.use('/admin/totp', require('../routes/admin/totp'));
 
-  app.get('/admin/audit-logs', rbac.requireAdmin(), asyncHandler(async (req, res, next) => {
-    try {
-      let limit = AUDIT_LOG_DEFAULT_LIMIT;
-      if (req.query.limit !== undefined) {
-        const parsed = parseInt(req.query.limit, 10);
-        if (isNaN(parsed) || parsed < 1) {
-          return res.status(400).json({ success: false, error: { code: 'INVALID_LIMIT', message: 'limit must be a positive integer' } });
-        }
-        if (parsed > AUDIT_LOG_MAX_LIMIT) {
-          return res.status(400).json({ success: false, error: { code: 'LIMIT_TOO_LARGE', message: `limit cannot exceed ${AUDIT_LOG_MAX_LIMIT}` } });
-        }
-        limit = parsed;
-      }
+  // ── Audit logs, reconciliation & sync (admin) ─────────────────────────────
+  mountEndpoints(app, endpoints.afterAdminGuard);
 
-      const VALID_CATEGORIES = new Set(Object.values(AuditLogService.CATEGORY));
-      const VALID_SEVERITIES = new Set(Object.values(AuditLogService.SEVERITY));
-      if (req.query.category && !VALID_CATEGORIES.has(req.query.category)) {
-        return res.status(400).json({ success: false, error: 'Invalid category value' });
-      }
-      if (req.query.severity && !VALID_SEVERITIES.has(req.query.severity)) {
-        return res.status(400).json({ success: false, error: 'Invalid severity value' });
-      }
-
-      const pagination = parseCursorPaginationQuery({ ...req.query, limit: String(limit) });
-      pagination.limit = limit;
-
-      const filters = {
-        category: req.query.category,
-        action: req.query.action,
-        severity: req.query.severity,
-        userId: req.query.actorId || req.query.userId,
-        requestId: req.query.requestId,
-        startDate: req.query.from || req.query.startDate,
-        endDate: req.query.to || req.query.endDate,
-      };
-
-      const result = await AuditLogService.queryPaginated(filters, pagination);
-      res.setHeader('X-Total-Count', String(result.totalCount));
-      res.json({
-        success: true,
-        data: result.data,
-        count: result.data.length,
-        pagination: {
-          limit,
-          cursor: result.meta.next_cursor || null,
-          hasMore: result.meta.next_cursor !== null,
-          total: result.totalCount,
-        },
-        meta: result.meta,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }));
-
-  // ── Reconciliation & sync (admin) ─────────────────────────────────────────
-  const reconcileHandler = (reconciliationService) => asyncHandler(async (req, res, next) => {
-    try {
-      if (reconciliationService && reconciliationService.reconciliationInProgress) {
-        return res.status(409).json({ success: false, error: 'Reconciliation already in progress' });
-      }
-      const result = await reconciliationService.reconcile();
-      res.json({ success: true, message: 'Reconciliation complete', data: result, timestamp: new Date().toISOString() });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  if (services.reconciliationService) {
-    app.post('/reconcile', rbac.requireAdmin(), payloadSizeLimiter(ENDPOINT_LIMITS.admin), reconcileHandler(services.reconciliationService));
-    app.post('/admin/reconcile', rbac.requireAdmin(), payloadSizeLimiter(ENDPOINT_LIMITS.admin), reconcileHandler(services.reconciliationService));
-    app.get('/admin/orphaned-transactions', rbac.requireAdmin(), asyncHandler(async (req, res, next) => {
-      try {
-        const rows = await Database.query(
-          'SELECT id, senderId, receiverId, amount, memo, timestamp, stellar_tx_id FROM transactions WHERE is_orphan = 1 ORDER BY timestamp DESC',
-          []
-        );
-        res.json({
-          success: true,
-          data: { count: rows.length, transactions: rows, lifetimeDetected: services.reconciliationService.getOrphanedTransactionCount() },
-          timestamp: new Date().toISOString(),
-        });
-      } catch (error) { next(error); }
-    }));
-  }
-
-  if (transactionSyncScheduler) {
-    app.post('/admin/sync', rbac.requireAdmin(), payloadSizeLimiter(ENDPOINT_LIMITS.admin), asyncHandler(async (req, res, next) => {
-      try {
-        const result = await transactionSyncScheduler.syncAllWallets();
-        res.json({ success: true, message: 'Transaction sync complete', data: result });
-      } catch (error) { next(error); }
-    }));
-  }
-
-  // ── 404 & error handlers (must be last) ──────────────────────────────────
   // ── Optional changelog endpoint (ENABLE_CHANGELOG_ENDPOINT=true) ───────────
   if (require('../config/env').readEnv('ENABLE_CHANGELOG_ENDPOINT')) {
-    const changelogRoutes = require('../routes/changelog');
-    app.use('/api/v1/changelog', changelogRoutes);
+    app.use('/api/v1/changelog', require('../routes/changelog'));
   }
 
   // ── Method registry population ────────────────────────────────────────────
@@ -624,12 +445,14 @@ function mountRoutes(app, services = {}) {
   app.use(optionsHandler);
   app.use(methodNotAllowedHandler);
 
+  // ── 404 & error handlers (must be last) ──────────────────────────────────
   app.use(notFoundHandler);
   app.use(errorHandler);
 }
 
 module.exports = {
   mountRoutes,
+  buildEndpointTable,
   V1_ROUTES,
   ADMIN_ROUTES,
   UNVERSIONED_PATHS,

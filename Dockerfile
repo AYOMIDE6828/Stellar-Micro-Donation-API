@@ -1,7 +1,7 @@
 # ── Build stage ──────────────────────────────────────────────────────────────
 # Pin base image by digest for reproducible builds and supply chain security
-# Use node:20-alpine for minimal attack surface (no package manager, no shell in prod)
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS builder
+# Use node:24-alpine for minimal attack surface (no package manager, no shell in prod)
+FROM node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS builder
 
 WORKDIR /app
 
@@ -13,11 +13,11 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 # Copy application source
-COPY . .
+COPY src ./src
 
 # ── Production stage ──────────────────────────────────────────────────────────
 # Pinned digest ensures reproducible production image across builds
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+FROM node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f
 
 WORKDIR /app
 
@@ -30,7 +30,7 @@ COPY --from=builder --chown=appuser:appgroup /app/src ./src
 COPY --from=builder --chown=appuser:appgroup /app/package.json ./package.json
 
 # Create data and temporary directories with proper non-root permissions
-RUN mkdir -p /app/data /data /tmp && chown -R appuser:appgroup /app /data /tmp
+RUN mkdir -p /data /tmp && chown -R appuser:appgroup /app /data /tmp
 
 # Declare writable volumes for read-only root filesystem support
 VOLUME ["/data", "/tmp"]

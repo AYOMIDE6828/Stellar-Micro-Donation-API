@@ -45,6 +45,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Verify sqlite3 loads in the production image
+        run: docker run --rm stellar-micro-donation-api:${{ github.sha }} node -e "require('sqlite3'); console.log('sqlite3 loaded')"
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@v0.36.0
         with:
