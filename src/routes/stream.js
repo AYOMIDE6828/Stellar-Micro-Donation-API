@@ -88,6 +88,7 @@
  */
 
 const express = require('express');
+const { clientErrorMessage } = require('../utils/clientErrorMessage');
 const router = express.Router();
 const crypto = require('crypto');
 const Database = require('../utils/database');
@@ -583,7 +584,7 @@ router.get('/schedules/:id', checkPermission(PERMISSIONS.STREAM_READ), streamSch
     res.status(500).json({
       success: false,
       error: 'Failed to fetch schedule',
-      message: error.message
+      message: clientErrorMessage('STREAM_ROUTE', error, 500, 'Failed to fetch schedule')
     });
   }
 }));
@@ -932,7 +933,7 @@ router.delete('/schedules/:id', checkPermission(PERMISSIONS.STREAM_DELETE), stre
     res.status(500).json({
       success: false,
       error: 'Failed to cancel schedule',
-      message: error.message
+      message: clientErrorMessage('STREAM_ROUTE', error, 500, 'Failed to cancel schedule')
     });
   }
 }));

@@ -138,6 +138,7 @@ const ENV_VARS = [
   { group: G3, name: 'RECIPIENT_SECRETS', type: 'string', secret: true, description: 'JSON-encoded map of recipient IDs to Stellar secret keys for multi-recipient flows' },
   { group: G3, name: 'SERVICE_ACCOUNT_PUBLIC_KEY', type: 'string', example: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', description: 'Public key of the service account monitored for low balance' },
   { group: G3, name: 'SERVICE_SECRET_KEY', type: 'string', secret: true, description: 'Stellar secret key (`S…`) for service-initiated signing operations. Never commit.' },
+  { group: G3, name: 'SEP10_SIGNING_KEY', type: 'string', secret: true, description: 'Dedicated, unfunded Stellar secret key (`S…`) that signs SEP-10 challenges and is published as `SIGNING_KEY` in stellar.toml. Falls back to `STELLAR_SECRET`/`SERVICE_SECRET_KEY` when unset. Must not be a funded account.' },
   { group: G3, name: 'SERVICE_SIGNING_KEY', type: 'string', secret: true, description: 'Alias for `SERVICE_SECRET_KEY` used in some signing paths' },
   { group: G3, name: 'SIMULATION_ENABLED', type: 'boolean', default: true, description: 'Mock Stellar only: set `false` to disable transaction simulation' },
   { group: G3, name: 'SOROBAN_RPC_URL', type: 'url', description: 'Soroban RPC endpoint for smart-contract calls' },

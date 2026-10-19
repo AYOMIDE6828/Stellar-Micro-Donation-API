@@ -13,6 +13,8 @@
 'use strict';
 
 const express = require('express');
+const { clientErrorMessage } = require('../utils/clientErrorMessage');
+const asyncHandler = require('../utils/asyncHandler');
 const log = require('../utils/log');
 const requireApiKey = require('../middleware/apiKey');
 const rbac = require('../middleware/rbac');
@@ -336,6 +338,36 @@ function mountRoutes(app, services = {}) {
   // in routes/auditLogExport.js) gates admin vs. self-service non-admin access,
   // so this is intentionally NOT behind requireAdminTOTP() at the mount point.
   apiV1.use('/api-keys', require('../routes/auditLogExport'));
+
+  // Exchange rates
+  apiV1.get('/exchange-rates', asyncHandler(async (req, res) => {
+    try {
+      const priceOracle = require('../services/PriceOracleService');
+      const rates = await priceOracle.getRates();
+      const priceSource = typeof priceOracle.getPriceSourceStatus === 'function'
+        ? priceOracle.getPriceSourceStatus().source
+        : undefined;
+      res.json({
+        success: true,
+        data: {
+          base: 'XLM',
+          rates,
+          source: priceSource,
+          supportedCurrencies: ['XLM', ...priceOracle.SUPPORTED_CURRENCIES.map(c => c.toUpperCase())],
+          cachedAt: new Date().toISOString(),
+        },
+      });
+    } catch (err) {
+      log.error('APP', 'Failed to fetch exchange rates', { error: err.message });
+      res.status(503).json({
+        success: false,
+        error: { code: 'EXCHANGE_RATE_UNAVAILABLE', message: clientErrorMessage('EXCHANGE_RATES', err, 503) },
+      });
+    }
+  }));
+
+  // Donation and entity export endpoints (#1596)
+  apiV1.use('/exports', require('../routes/exports'));
 
   app.use('/api/v1', apiV1);
 

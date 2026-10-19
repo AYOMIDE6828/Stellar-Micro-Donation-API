@@ -317,6 +317,7 @@ API_KEYS=your-api-key-here
 
 Required at startup:
 - `API_KEYS` (legacy method, or use database-backed keys)
+  - Legacy keys are rejected after `LEGACY_API_KEYS_DISABLED_AFTER` (default `2026-12-31`). See [docs/MIGRATION_LEGACY_API_KEYS.md](docs/MIGRATION_LEGACY_API_KEYS.md) for migrating to database-backed keys.
 - `ENCRYPTION_KEY` (required only when `NODE_ENV=production`)
 
 Validated at startup (if provided):

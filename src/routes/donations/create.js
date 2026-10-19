@@ -15,6 +15,7 @@
 'use strict';
 
 const express = require('express');
+const { clientErrorMessage } = require('../../utils/clientErrorMessage');
 const router = express.Router();
 
 const requireApiKey = require('../../middleware/apiKey');
@@ -196,7 +197,7 @@ router.post('/send', rotationLockMiddleware(), payloadSizeLimiter(ENDPOINT_LIMIT
     res.status(500).json({
       success: false,
       error: 'Failed to send donation',
-      message: error.message
+      message: clientErrorMessage('DONATION_ROUTE', error, 500, 'Failed to send donation')
     });
   }
 }));
