@@ -5,6 +5,8 @@
  * Tracked paths that must not exist:
  *   - anything under data/ except data/.gitkeep (backups, JSON stores, SQLite
  *     databases, memo keys)
+ *   - root-level tmp-* scratch scripts (e.g. tmp-debug.js; one such script wiped
+ *     the wallets table when run against a local database)
  *
  * Run: node scripts/check-no-tracked-artifacts.js
  * Exit 0 = clean, Exit 1 = violations found.
@@ -21,6 +23,7 @@ const ALLOWED = new Set(['data/.gitkeep']);
 
 const BANNED = [
   { label: 'runtime data directory', test: (file) => file.startsWith('data/') && !ALLOWED.has(file) },
+  { label: 'root scratch script', test: (file) => /^tmp-[^/]*$/.test(file) },
 ];
 
 function listTrackedFiles() {
