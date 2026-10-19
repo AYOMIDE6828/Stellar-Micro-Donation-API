@@ -44,6 +44,7 @@ jobs:
       # ADR-004: no float arithmetic on money. Fails on findings beyond the
       # KNOWN_FLOAT_MONEY baseline in the script.
       - run: npm run check:no-float-money
+      - run: npm run check:declared-deps
       # docs/TEST_NAMING_CONVENTION.md: no new issue-numbered test files.
       - run: npm run check:test-naming
       # Suites must not leak env/global state or share fixtures across workers.
