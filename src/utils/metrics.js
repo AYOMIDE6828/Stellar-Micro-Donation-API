@@ -348,6 +348,29 @@ function recordLegacyKeyUsage(keyIdHash) {
   } catch (_) { /* best-effort */ }
 }
 
+/**
+ * Counter: rejected authentication attempts, by reason.
+ * Labels: reason (missing_key|invalid_key)
+ * @type {client.Counter}
+ */
+const authFailuresTotal = new client.Counter({
+  name: 'auth_failures_total',
+  help: 'Total rejected API key authentication attempts',
+  labelNames: ['reason'],
+  registers: [registry],
+});
+
+/**
+ * Records one rejected authentication attempt. Metrics are not audited, so this
+ * captures every failure even when the audit row is throttled.
+ * @param {'missing_key'|'invalid_key'} reason
+ */
+function recordAuthFailure(reason) {
+  try {
+    authFailuresTotal.inc({ reason });
+  } catch (_) { /* best-effort */ }
+}
+
 // ─── Scheduler Leader Election Metrics (#1604) ───────────────────────────────
 
 /**
@@ -411,6 +434,9 @@ module.exports = {
   // Legacy API key usage (#1886)
   legacyApiKeyUsageTotal,
   recordLegacyKeyUsage,
+  // Authentication failure metrics (#1887)
+  authFailuresTotal,
+  recordAuthFailure,
   // Scheduler leader election metrics (#1604)
   schedulerLockAcquisitionsTotal,
   schedulerLockReleasesTotal,

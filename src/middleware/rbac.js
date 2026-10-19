@@ -24,6 +24,9 @@ const { hasScope, hasAnyScope, hasAllScopes } = require('../utils/scopeValidator
 const log = require('../utils/log');
 const { getLegacyKeySunsetDate, isLegacyKeyDisabled } = require('../utils/legacyApiKeySunset');
 const { recordLegacyKeyUsage } = require('../utils/metrics');
+const { allowAuditEvent } = require('../utils/authAuditThrottle');
+
+const LEGACY_AUDIT_WINDOW_MS = 60 * 60 * 1000;
 
 /**
  * Role-Based Access Control (RBAC) Configuration
@@ -467,22 +470,24 @@ const attachUserRole = () => {
               isLegacy: true
             };
 
-            // Audit every legacy key usage
-            AuditLogService.log({
-              category: AuditLogService.CATEGORY.AUTHENTICATION,
-              action: AuditLogService.ACTION.LEGACY_KEY_USED,
-              severity: AuditLogService.SEVERITY.HIGH,
-              result: 'SUCCESS',
-              userId: legacyKeyId,
-              requestId: req.id,
-              ipAddress: req.ip,
-              resource: req.path,
-              details: {
-                method: req.method,
-                keyIdHash: legacyKeyId,
-                sunsetDate: getLegacyKeySunsetDate(),
-              },
-            }).catch(() => {});
+            // Audit legacy key usage once per key per hour; usage counts are in the metric (issue #1887)
+            if (allowAuditEvent(`legacy:${legacyKeyId}`, LEGACY_AUDIT_WINDOW_MS)) {
+              AuditLogService.log({
+                category: AuditLogService.CATEGORY.AUTHENTICATION,
+                action: AuditLogService.ACTION.LEGACY_KEY_USED,
+                severity: AuditLogService.SEVERITY.LOW,
+                result: 'SUCCESS',
+                userId: legacyKeyId,
+                requestId: req.id,
+                ipAddress: req.ip,
+                resource: req.path,
+                details: {
+                  method: req.method,
+                  keyIdHash: legacyKeyId,
+                  sunsetDate: getLegacyKeySunsetDate(),
+                },
+              }).catch(() => {});
+            }
           }
           // Default: Unauthenticated Guest access
           else {

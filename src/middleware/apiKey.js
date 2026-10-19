@@ -14,6 +14,12 @@ const { validateKey} = require("../models/apiKeys");
 const { verifyAccessToken } = require("../services/JwtService");
 const log = require("../utils/log");
 const { isLegacyKeyDisabled, getLegacyKeySunsetDate } = require("../utils/legacyApiKeySunset");
+const { allowAuditEvent } = require("../utils/authAuditThrottle");
+const { recordAuthFailure, recordLegacyKeyUsage } = require("../utils/metrics");
+
+// Authentication audit rows are written at most once per key per window (issue #1887)
+const AUTH_AUDIT_WINDOW_MS = 60 * 1000;
+const LEGACY_AUDIT_WINDOW_MS = 60 * 60 * 1000;
 const AuditLogService = require("../services/AuditLogService");
 const { verify: verifySignature } = require("../utils/requestSigner");
 const { isIpAllowed } = require("../utils/ipAllowlist");
@@ -132,27 +138,32 @@ const requireApiKey = async (req, res, next) => {
   const apiKey = req.get("x-api-key");
 
   if (!apiKey) {
-    log.warn("API_KEY", "Missing API key in request", {
-      ip: req.ip,
-      userAgent: req.get("User-Agent"),
-      path: req.path,
-    });
+    recordAuthFailure("missing_key");
 
-    // Audit log: Missing API key
-    AuditLogService.log({
-      category: AuditLogService.CATEGORY.AUTHENTICATION,
-      action: AuditLogService.ACTION.API_KEY_VALIDATION_FAILED,
-      severity: AuditLogService.SEVERITY.HIGH,
-      result: 'FAILURE',
-      requestId: req.id,
-      ipAddress: req.ip,
-      resource: req.path,
-      reason: 'Missing API key header',
-      details: {
+    // Audit at most once per IP per minute: unauthenticated traffic must not
+    // turn every request into an audit write (see issue #1887).
+    if (allowAuditEvent(`missing:${req.ip}`, AUTH_AUDIT_WINDOW_MS)) {
+      log.warn("API_KEY", "Missing API key in request", {
+        ip: req.ip,
         userAgent: req.get("User-Agent"),
-        method: req.method
-      }
-    }).catch(() => {});
+        path: req.path,
+      });
+
+      AuditLogService.log({
+        category: AuditLogService.CATEGORY.AUTHENTICATION,
+        action: AuditLogService.ACTION.API_KEY_VALIDATION_FAILED,
+        severity: AuditLogService.SEVERITY.LOW,
+        result: 'FAILURE',
+        requestId: req.id,
+        ipAddress: req.ip,
+        resource: req.path,
+        reason: 'Missing API key header',
+        details: {
+          userAgent: req.get("User-Agent"),
+          method: req.method
+        }
+      }).catch(() => {});
+    }
 
     return res.status(401).json({
       success: false,
@@ -407,21 +418,26 @@ const requireApiKey = async (req, res, next) => {
               "Consider migrating to database-backed keys for rotation support",
           });
 
-          // Audit log: Legacy key usage
-          AuditLogService.log({
-            category: AuditLogService.CATEGORY.AUTHENTICATION,
-            action: AuditLogService.ACTION.LEGACY_KEY_USED,
-            severity: AuditLogService.SEVERITY.MEDIUM,
-            result: 'SUCCESS',
-            requestId: req.id,
-            ipAddress: req.ip,
-            resource: req.path,
-            details: {
-              role: 'user',
-              isLegacy: true,
-              warning: 'Consider migrating to database-backed keys'
-            }
-          }).catch(() => {});
+          // Audit log: Legacy key usage, sampled to once per key per hour (see issue #1887)
+          const legacyKeyHash = crypto.createHash('sha256').update(apiKey).digest('hex').slice(0, 16);
+          recordLegacyKeyUsage(`legacy-${legacyKeyHash}`);
+          if (allowAuditEvent(`legacy:${legacyKeyHash}`, LEGACY_AUDIT_WINDOW_MS)) {
+            AuditLogService.log({
+              category: AuditLogService.CATEGORY.AUTHENTICATION,
+              action: AuditLogService.ACTION.LEGACY_KEY_USED,
+              severity: AuditLogService.SEVERITY.LOW,
+              result: 'SUCCESS',
+              requestId: req.id,
+              ipAddress: req.ip,
+              resource: req.path,
+              details: {
+                role: 'user',
+                isLegacy: true,
+                keyIdHash: legacyKeyHash,
+                warning: 'Consider migrating to database-backed keys'
+              }
+            }).catch(() => {});
+          }
 
           req.apiKey = {
             role: "user",
@@ -434,20 +450,24 @@ const requireApiKey = async (req, res, next) => {
     }
 
     // Stage 3: Rejection (Key is either invalid, revoked, or expired)
-    // Audit log: Invalid API key
-    AuditLogService.log({
-      category: AuditLogService.CATEGORY.AUTHENTICATION,
-      action: AuditLogService.ACTION.API_KEY_VALIDATION_FAILED,
-      severity: AuditLogService.SEVERITY.HIGH,
-      result: 'FAILURE',
-      requestId: req.id,
-      ipAddress: req.ip,
-      resource: req.path,
-      reason: 'Invalid or expired API key',
-      details: {
-        keyPrefix: apiKey.substring(0, 8) + '...'
-      }
-    }).catch(() => {});
+    recordAuthFailure("invalid_key");
+
+    // Audit log: Invalid API key, at most once per IP per minute (see issue #1887)
+    if (allowAuditEvent(`invalid:${req.ip}`, AUTH_AUDIT_WINDOW_MS)) {
+      AuditLogService.log({
+        category: AuditLogService.CATEGORY.AUTHENTICATION,
+        action: AuditLogService.ACTION.API_KEY_VALIDATION_FAILED,
+        severity: AuditLogService.SEVERITY.MEDIUM,
+        result: 'FAILURE',
+        requestId: req.id,
+        ipAddress: req.ip,
+        resource: req.path,
+        reason: 'Invalid or expired API key',
+        details: {
+          keyPrefix: apiKey.substring(0, 8) + '...'
+        }
+      }).catch(() => {});
+    }
 
     return res.status(401).json({
       success: false,
